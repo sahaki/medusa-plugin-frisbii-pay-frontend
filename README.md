@@ -78,6 +78,16 @@ const PaymentButton: React.FC<PaymentButtonProps> = ({
         <FrisbiiPaymentButton
           cart={cart}
           notReady={!cart.shipping_address || !cart.billing_address}
+          ButtonComponent={({ onClick, disabled, children }) => (
+            <Button
+              size="large"
+              onClick={onClick}
+              disabled={disabled}
+              data-testid={dataTestId}
+            >
+              {children}
+            </Button>
+          )}
           onOrderPlaced={async (cartId) => {
             await placeOrder(cartId)
           }}
