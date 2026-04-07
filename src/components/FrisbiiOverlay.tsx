@@ -41,6 +41,7 @@ export function FrisbiiOverlay({
       return () => rp.destroy?.()
     } catch (error) {
       console.error("[Frisbii] Error initializing modal checkout:", error)
+      return undefined
     }
   }, [loaded, sessionId, onComplete, onCancel])
 

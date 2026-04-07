@@ -44,6 +44,7 @@ export function FrisbiiEmbedded({
       return () => rp.destroy?.()
     } catch (error) {
       console.error("[Frisbii] Error initializing embedded checkout:", error)
+      return undefined
     }
   }, [loaded, sessionId, onComplete, onCancel])
 

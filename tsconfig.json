@@ -14,7 +14,6 @@
     "declarationMap": true,
     "sourceMap": true,
     "composite": false,
-    "incremental": true,
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
