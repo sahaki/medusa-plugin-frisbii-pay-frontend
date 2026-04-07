@@ -59,6 +59,27 @@ export function FrisbiiPaymentButton({
     ((session?.data as Record<string, unknown>)?.display_type as string) ||
     "overlay"
 
+  console.log("FrisbiiPaymentButton Debug:", {
+    allSessions: cart?.payment_collection?.payment_sessions,
+    foundSession: session,
+    sessionStatus: session?.status,
+    sessionData: session?.data,
+    sessionId: sessionId,
+    notReady: notReady,
+    submitting: submitting,
+    showCheckout: showCheckout,
+    buttonDisabled: notReady || !sessionId || submitting,
+  })
+
+  // Debug: Log session data
+  if (!sessionId && session) {
+    console.error("Frisbii Payment Session Error:", {
+      sessionData: session.data,
+      providerId: session.provider_id,
+      status: session.status,
+    })
+  }
+
   // Create config from session data
   const config: FrisbiiPublicConfig = {
     enabled: true,
@@ -118,6 +139,11 @@ export function FrisbiiPaymentButton({
 
   const Button = ButtonComponent || DefaultButton
 
+  // Debug: Show payment session info
+  const debugInfo = !sessionId && session
+    ? `Session provider: ${session.provider_id}, Status: ${session.status}, Has data: ${!!session.data}`
+    : null
+
   return (
     <>
       {showCheckout && sessionId && (
@@ -137,6 +163,17 @@ export function FrisbiiPaymentButton({
           >
             {submitting ? "Processing..." : "Place order"}
           </Button>
+          {!sessionId && !notReady && session && (
+            <div className="mt-2 text-sm text-red-600" role="alert">
+              <p>Payment session not initialized properly.</p>
+              <p className="text-xs mt-1">{debugInfo}</p>
+            </div>
+          )}
+          {!sessionId && !notReady && !session && (
+            <div className="mt-2 text-sm text-red-600" role="alert">
+              No payment session found. Please select a payment method.
+            </div>
+          )}
           {error && (
             <div className="mt-2 text-sm text-red-600" role="alert">
               {error}
