@@ -37,18 +37,22 @@ pnpm add @montaekung/medusa-plugin-frisbii-pay-frontend
 **File**: `src/lib/constants.tsx`
 
 ```tsx
-import { isFrisbii } from "@montaekung/medusa-plugin-frisbii-pay-frontend"
+import { isFrisbii as isFrisbiiProvider } from "@montaekung/medusa-plugin-frisbii-pay-frontend"
 
-export const paymentInfoMap: Record<string, { title: string; icon: JSX.Element }> = {
+export const paymentInfoMap: Record<
+  string,
+  { title: string; icon: React.JSX.Element }
+> = {
   // ... existing providers
+  // Add more payment providers here
   "pp_frisbii-payment_frisbii-payment": {
     title: "Frisbii Pay",
     icon: <CreditCard />,
   },
 }
 
-// Export helper function
-export { isFrisbii }
+// Export provider from plugin
+export const isFrisbii = isFrisbiiProvider
 ```
 
 ### 2. Add Payment Button Handler
@@ -58,9 +62,11 @@ export { isFrisbii }
 ```tsx
 import { FrisbiiPaymentButton } from "@montaekung/medusa-plugin-frisbii-pay-frontend"
 import { isFrisbii } from "@lib/constants"
-import { placeOrder } from "@lib/data/cart"
 
-const PaymentButton = ({ cart }) => {
+const PaymentButton: React.FC<PaymentButtonProps> = ({
+  cart,
+  "data-testid": dataTestId,
+}) => {
   const paymentSession = cart.payment_collection?.payment_sessions?.[0]
 
   switch (true) {
@@ -89,27 +95,99 @@ const PaymentButton = ({ cart }) => {
 **File**: `src/modules/checkout/components/payment/index.tsx`
 
 ```tsx
-import { initiatePaymentSession } from "@lib/data/cart"
+import { isFrisbii, isStripeLike, paymentInfoMap } from "@lib/constants"
 
 const handleSubmit = async () => {
-  if (isFrisbii(selectedPaymentMethod)) {
-    const baseUrl = window.location.origin
-    const countryCode = pathname.split("/")[1] || "us"
-    
-    await initiatePaymentSession(cart, {
-      provider_id: selectedPaymentMethod,
-      data: {
+  if (!checkActiveSession) {
+    const sessionData: {
+      provider_id: string
+      data?: Record<string, unknown>
+    } = { provider_id: selectedPaymentMethod }
+
+    if (isFrisbii(selectedPaymentMethod)) {
+      const baseUrl = window.location.origin
+      const countryCode = pathname.split("/")[1] || "us"
+      const addr = cart.shipping_address
+      sessionData.data = {
         extra: {
-          accept_url: `${baseUrl}/${countryCode}/checkout?step=review`,
-          cancel_url: `${baseUrl}/${countryCode}/checkout?step=payment`,
-          customer_email: cart.email,
-          customer_first_name: cart.shipping_address?.first_name,
-          customer_last_name: cart.shipping_address?.last_name,
+          accept_url: `${baseUrl}/${countryCode}/checkout/frisbii/accept?cart_id=${cart.id}`,
+          cancel_url: `${baseUrl}/${countryCode}/checkout/frisbii/cancel?cart_id=${cart.id}`,
+          customer_email: cart.email || addr?.email || "",
+          customer_first_name: addr?.first_name || "",
+          customer_last_name: addr?.last_name || "",
           customer_handle: cart.customer_id || `guest-${cart.id}`,
         },
-      },
-    })
+      }
+    }
+
+    await initiatePaymentSession(cart, sessionData)
   }
+}
+```
+
+### 4. Create Route Handlers (For Redirect Mode)
+
+Create route handlers to process accept/cancel callbacks from Reepay:
+
+**File**: `src/app/[countryCode]/checkout/frisbii/accept/page.tsx`
+
+```tsx
+import { completeOrder } from "@lib/data/cart"
+import { redirect } from "next/navigation"
+
+export default async function FrisbiiAcceptPage({
+  searchParams,
+  params,
+}: {
+  searchParams: Promise<{ cart_id?: string }>
+  params: Promise<{ countryCode: string }>
+}) {
+  const { cart_id: cartId } = await searchParams
+  const { countryCode } = await params
+
+  if (!cartId) {
+    redirect(`/${countryCode}/checkout?step=review`)
+  }
+
+  const result = await completeOrder(cartId)
+
+  if (result.success) {
+    redirect(result.redirectUrl)
+  }
+
+  console.error("Frisbii accept: order completion failed:", result.error)
+  redirect(`/${countryCode}/checkout?step=review`)
+}
+```
+
+**File**: `src/app/[countryCode]/checkout/frisbii/cancel/page.tsx`
+
+```tsx
+"use client"
+
+import { useSearchParams, useRouter, useParams } from "next/navigation"
+import { useEffect } from "react"
+
+export default function FrisbiiCancelPage() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const { countryCode } = useParams()
+
+  const cartId = searchParams.get("cart_id")
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      router.push(`/${countryCode}/checkout`)
+    }, 2000)
+
+    return () => clearTimeout(timer)
+  }, [router, countryCode])
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
+      <p>Payment was cancelled. Redirecting back to checkout...</p>
+    </div>
+  )
 }
 ```
 
@@ -402,7 +480,45 @@ import { FrisbiiPaymentButton } from "@montaekung/medusa-plugin-frisbii-pay-fron
 
 ---
 
-### Issue: TypeScript errors
+### Issue: `isFrisbii` is not a function / Cannot find `isFrisbii`
+
+**Cause:** `isFrisbii` is imported but not re-exported from `@lib/constants`.
+
+**Solution:** Ensure you re-export `isFrisbii` in your `constants.tsx`:
+
+```tsx
+// src/lib/constants.tsx
+import { isFrisbii as isFrisbiiProvider } from "@montaekung/medusa-plugin-frisbii-pay-frontend"
+
+// Re-export for use in other files
+export const isFrisbii = isFrisbiiProvider
+```
+
+---
+
+### Issue: Module not found error
+
+**Cause:** Package not installed or npm link not set up correctly.
+
+**Solution:**
+
+```bash
+# If using npm link for local development
+cd your-plugin-directory
+npm run build
+npm link
+
+cd your-storefront-directory
+npm link @montaekung/medusa-plugin-frisbii-pay-frontend
+
+# Clear Next.js cache
+rm -rf .next
+npm run dev
+```
+
+---
+
+### Issue: TypeScript errors during build
 
 **Solution:** Ensure you have peer dependencies installed:
 
@@ -415,6 +531,25 @@ npm install react react-dom --save
 ### Issue: SDK fails to load
 
 **Solution:** Check browser console for errors. Ensure no adblockers are blocking `checkout.reepay.com`.
+
+---
+
+### Issue: Payment redirect URLs not working
+
+**Cause:** Route handlers not created for accept/cancel URLs.
+
+**Solution:** Create route handlers as shown in Quick Start step 4, or use simple query params:
+
+```tsx
+// Alternative: Use query params instead of route handlers
+sessionData.data = {
+  extra: {
+    accept_url: `${baseUrl}/${countryCode}/checkout?step=review&payment=success`,
+    cancel_url: `${baseUrl}/${countryCode}/checkout?step=payment&payment=cancelled`,
+    // ...
+  },
+}
+```
 
 ---
 
