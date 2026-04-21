@@ -42,7 +42,7 @@ export function FrisbiiPayment({
         />
       )
     case "redirect":
-      return <FrisbiiRedirect sessionId={sessionId} />
+      return <FrisbiiRedirect sessionId={sessionId} onComplete={onComplete} />
     default:
       // Default to overlay if display_type is invalid
       return (
