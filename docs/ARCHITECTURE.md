@@ -245,14 +245,34 @@ setShowCheckout(true)
   ↓
 Render FrisbiiPayment component
   ↓
-User completes payment
+User completes payment on Reepay
   ↓
-onComplete() → placeOrder()
+Accept event fires → window.location.href = accept_url
   ↓
-Order created
+FrisbiiAcceptPage (Server Component)
+  ├─ Fast path: completeOrder(cartId, { skipCookieClear: true })
+  │   ├─ Retries up to 4× (~10–20 s) waiting for Reepay REST API "authorized" state
+  │   └─ On success: redirect to /{countryCode}/order/{id}/confirmed
+  │
+  └─ Slow path (fallback): pollOrderByCart(cartId)
+      ├─ Polls GET /store/frisbii/order-by-cart up to 10× every 2 s
+      │   └─ Backend queries order_cart JOIN table (Medusa v2)
+      └─ On success: redirect to /{countryCode}/order/{id}/confirmed
   ↓
-Redirect to confirmation
+OrderConfirmedPage
+  └─ ClearCartOnLoad (client component)
+      └─ calls clearCartAction() (Server Action)
+          └─ removeCartId() — deletes _medusa_cart_id cookie
 ```
+
+> **Why `skipCookieClear: true`?**: Next.js does not allow `cookies().delete()` during Server Component renders — only in **Server Actions** and **Route Handlers**. The accept page is a Server Component, so cookie operations must be deferred to the confirmed page via a Server Action.
+
+> **Why poll `order_cart`?**: In Medusa v2 there is no `cart_id` column on the `order` table. The cart→order link is stored in a separate `order_cart` JOIN table. The backend `GET /store/frisbii/order-by-cart` endpoint queries this table.
+
+> **Fallback** (when `accept_url` is not stored in session data):
+> `onOrderPlaced(cartId)` is called directly, which invokes a Next.js
+> server action. This path may be affected by the race condition between
+> the browser redirect and the Reepay REST API state.
 
 ---
 
@@ -356,41 +376,82 @@ export async function getFrisbiiConfig(
 ```
 1. User selects "Frisbii Pay"
    ↓
-2. Frontend calls initiatePaymentSession()
+2. Frontend calls initiatePaymentSession() with:
+     - accept_url: /[countryCode]/checkout/frisbii/accept?cart_id=…
+     - cancel_url: /[countryCode]/checkout/frisbii/cancel?cart_id=…
+     - customer details, locale, etc.
    ↓
-3. Backend creates Reepay session
+3. Backend creates Reepay session (passing accept_url / cancel_url)
    ↓
-4. Backend returns session_id + display_type
+4. Backend returns:
+     - session_id  (Reepay session handle)
+     - display_type (overlay | embedded | redirect)
+     - accept_url  (echoed back so frontend can redirect after Accept event)
    ↓
-5. Frontend stores in payment session
+5. Frontend stores all fields in Medusa payment session data
    ↓
 6. User continues to review
 ```
 
 ### Payment Execution Flow
 
+**Overlay / Embedded mode** (Reepay JS SDK in-page):
+
 ```
 1. User clicks "Place order"
    ↓
-2. FrisbiiPaymentButton extracts session_id
+2. FrisbiiPaymentButton extracts session_id + accept_url
    ↓
-3. Render FrisbiiPayment component
+3. Render FrisbiiPayment → FrisbiiOverlay or FrisbiiEmbedded
    ↓
-4. useFrisbiiCheckout loads SDK
+4. useFrisbiiCheckout loads Reepay SDK
    ↓
-5. Display mode component initializes
+5. ModalCheckout / EmbeddedCheckout initialises
    ↓
-6. User enters payment details
+6. User enters payment details in modal / embedded form
    ↓
 7. Reepay processes payment
    ↓
 8. SDK fires "Accept" event
    ↓
-9. onComplete() calls placeOrder()
+9. FrisbiiPaymentButton: window.location.href = accept_url
+   (e.g. /[countryCode]/checkout/frisbii/accept?cart_id=…)
    ↓
-10. Backend creates order
+10. Accept page: completeOrder(cartId) [server-side]
    ↓
-11. Redirect to confirmation
+11. Medusa: authorizePayment() ✅ → order created
+   ↓
+12. removeCartId() clears cart cookie
+   ↓
+13. redirect() → thank-you page
+```
+
+> **Why `accept_url` instead of a direct server action call?**
+> The Reepay SDK fires the `Accept` event the instant the user confirms
+> payment in the modal. At that same millisecond, Reepay's API may not yet
+> have transitioned the charge to "authorized" state. Calling
+> `cart.complete()` immediately would cause `authorizePayment()` to return
+> "pending", so Medusa would not create the order and no redirect would
+> happen.  The browser navigation to `accept_url` introduces enough latency
+> (one extra HTTP round-trip) for Reepay to fully process the payment, so
+> `completeOrder()` reliably succeeds.
+
+**Redirect mode** (Reepay hosted page):
+
+```
+1. User clicks "Place order"
+   ↓
+2. FrisbiiPaymentButton → FrisbiiRedirect mounts
+   ↓
+3. window.location.href = https://checkout.reepay.com/#/{sessionId}
+   ↓
+4. User pays on Reepay's hosted page
+   ↓
+5. Reepay redirects browser → accept_url
+   ↓
+6. Accept page: completeOrder(cartId) [server-side]
+   ↓
+7. Order created → removeCartId() → redirect to thank-you page
 ```
 
 ---

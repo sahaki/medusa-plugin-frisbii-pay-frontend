@@ -174,8 +174,9 @@ const handleSubmit = async () => {
 
         sessionData.data = {
           extra: {
-            accept_url: `${baseUrl}/${countryCode}/checkout?step=review`,
-            cancel_url: `${baseUrl}/${countryCode}/checkout?step=payment`,
+            // accept_url MUST point to the storefront accept page (not checkout step)
+            accept_url: `${baseUrl}/${countryCode}/checkout/frisbii/accept?cart_id=${cart.id}`,
+            cancel_url: `${baseUrl}/${countryCode}/checkout/frisbii/cancel?cart_id=${cart.id}`,
             customer_email: cart.email || addr?.email || "",
             customer_first_name: addr?.first_name || "",
             customer_last_name: addr?.last_name || "",
@@ -202,57 +203,170 @@ const handleSubmit = async () => {
 }
 ```
 
-### 7. Create Route Handlers (For Redirect Mode)
+### 7. Create Accept / Cancel Pages (Required for Redirect Mode)
 
-If using **redirect** display mode, create route handlers to process Reepay callbacks:
+If using **redirect** display mode, create two pages (not Route Handlers) to process Reepay callbacks.
 
-**File**: `src/app/[countryCode]/checkout/frisbii/accept/route.ts`
+> **Important — Next.js Server Component constraints:**
+> - `removeCartId()` calls `cookies().delete()` which is **not allowed** during a Server Component render.
+> - `revalidateTag()` is also disallowed during render.
+> - Use `{ skipCookieClear: true }` in `completeOrder()` and clean up the cart from the confirmed page instead (Step 8).
+
+**File**: `src/app/[countryCode]/checkout/frisbii/accept/page.tsx`
 
 ```tsx
-import { NextRequest, NextResponse } from "next/server"
-import { placeOrder } from "@lib/data/cart"
+import { completeOrder } from "@lib/data/cart"
+import { redirect } from "next/navigation"
 
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const cartId = searchParams.get("cart_id")
-  const countryCode = request.nextUrl.pathname.split("/")[1] || "us"
+const BACKEND_URL =
+  process.env.MEDUSA_BACKEND_URL ||
+  process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL ||
+  "http://localhost:9000"
+const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || ""
 
-  if (!cartId) {
-    return NextResponse.redirect(
-      new URL(`/${countryCode}/checkout?step=payment&error=missing_cart`, request.url)
-    )
+// Slow-path fallback: polls backend until webhook creates the order
+async function pollOrderByCart(
+  cartId: string,
+  maxAttempts = 10,
+  delayMs = 2000
+): Promise<{ order_id: string; country_code: string } | null> {
+  for (let i = 0; i < maxAttempts; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, delayMs))
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/store/frisbii/order-by-cart?cart_id=${encodeURIComponent(cartId)}`,
+        { cache: "no-store", headers: { "x-publishable-api-key": PUBLISHABLE_KEY } }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        if (data?.order_id) return { order_id: data.order_id, country_code: data.country_code || "dk" }
+      }
+    } catch {}
   }
+  return null
+}
 
-  try {
-    await placeOrder(cartId)
-    return NextResponse.redirect(
-      new URL(`/${countryCode}/order/confirmed/${cartId}`, request.url)
-    )
-  } catch (error) {
-    console.error("[Frisbii Accept] Error:", error)
-    return NextResponse.redirect(
-      new URL(`/${countryCode}/checkout?step=review&error=order_failed`, request.url)
-    )
-  }
+export default async function FrisbiiAcceptPage({
+  searchParams,
+  params,
+}: {
+  searchParams: Promise<{ cart_id?: string }>
+  params: Promise<{ countryCode: string }>
+}) {
+  const { cart_id: cartId } = await searchParams
+  const { countryCode } = await params
+
+  if (!cartId) redirect(`/${countryCode}/checkout?step=review`)
+
+  // Fast path: completeOrder with retries (~10–20 s).
+  // skipCookieClear: true is required — cookies().delete() is not allowed during SSR render.
+  const result = await completeOrder(cartId!, { skipCookieClear: true })
+  if (result.success) redirect(result.redirectUrl)
+
+  // Slow path: wait for Reepay webhook to create the order
+  const order = await pollOrderByCart(cartId!, 10, 2000)
+  if (order) redirect(`/${order.country_code}/order/${order.order_id}/confirmed`)
+
+  // Final fallback
+  redirect(`/${countryCode}/checkout?step=review`)
 }
 ```
 
-**File**: `src/app/[countryCode]/checkout/frisbii/cancel/route.ts`
+**File**: `src/app/[countryCode]/checkout/frisbii/cancel/page.tsx`
 
 ```tsx
-import { NextRequest, NextResponse } from "next/server"
+"use client"
 
-export async function GET(request: NextRequest) {
-  const countryCode = request.nextUrl.pathname.split("/")[1] || "us"
-  
-  return NextResponse.redirect(
-    new URL(`/${countryCode}/checkout?step=payment`, request.url)
+import { useSearchParams, useRouter, useParams } from "next/navigation"
+import { useEffect } from "react"
+
+export default function FrisbiiCancelPage() {
+  const router = useRouter()
+  const { countryCode } = useParams()
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      router.push(`/${countryCode}/checkout`)
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [router, countryCode])
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
+      <p>Payment was cancelled. Redirecting back to checkout...</p>
+    </div>
   )
 }
 ```
 
-> **Note:** For embedded or overlay modes, route handlers are optional as the payment flow stays on the same page.
+Also update `completeOrder()` in `src/lib/data/cart.ts` to support the `skipCookieClear` option:
+
+```ts
+export async function completeOrder(
+  cartId: string,
+  options?: { skipCookieClear?: boolean }
+): Promise<{ success: true; redirectUrl: string } | { success: false; error: string }> {
+  // ...
+  if (cartRes?.type === "order") {
+    // ...
+    if (!options?.skipCookieClear) {
+      await removeCartId()
+    }
+    return { success: true, redirectUrl: `/${countryCode}/order/${cartRes.order.id}/confirmed` }
+  }
+  // ...
+}
 ```
+
+### 8. Clear Cart on the Confirmed Page
+
+Since `removeCartId()` is skipped in the accept page, clear the cart via a Server Action when the confirmed page loads.
+
+**File**: `src/app/[countryCode]/(main)/order/[id]/confirmed/actions.ts`
+
+```ts
+"use server"
+
+import { removeCartId } from "@lib/data/cookies"
+
+export async function clearCartAction() {
+  await removeCartId()
+}
+```
+
+**File**: `src/app/[countryCode]/(main)/order/[id]/confirmed/ClearCartOnLoad.tsx`
+
+```tsx
+"use client"
+
+import { useEffect } from "react"
+import { clearCartAction } from "./actions"
+
+export default function ClearCartOnLoad() {
+  useEffect(() => {
+    clearCartAction().catch(() => {})
+  }, [])
+  return null
+}
+```
+
+**File**: `src/app/[countryCode]/(main)/order/[id]/confirmed/page.tsx` — add `<ClearCartOnLoad />`:
+
+```tsx
+import ClearCartOnLoad from "./ClearCartOnLoad"
+
+export default async function OrderConfirmedPage(props: Props) {
+  // ...
+  return (
+    <>
+      <ClearCartOnLoad />
+      <OrderCompletedTemplate order={order} />
+    </>
+  )
+}
+```
+
+> For embedded or overlay modes, the accept/cancel pages and `ClearCartOnLoad` are still recommended so that cart state is reliably cleared after payment.
 
 ## Verification
 
@@ -266,7 +380,7 @@ npm list @montaekung/medusa-plugin-frisbii-pay-frontend
 
 Expected output:
 ```
-└── @montaekung/medusa-plugin-frisbii-pay-frontend@0.1.0-beta.1
+└── @montaekung/medusa-plugin-frisbii-pay-frontend@0.1.0-beta.2
 ```
 
 ### 2. Test in Development

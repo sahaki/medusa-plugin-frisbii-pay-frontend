@@ -146,10 +146,58 @@ export function FrisbiiOverlay({
 ### FrisbiiPaymentButton
 
 - Pre-built button that handles entire payment flow
-- Extracts payment session from cart object
+- Extracts payment session from cart object: `session_id`, `display_type`, `accept_url`
 - Manages `showCheckout`, `submitting`, `error` state
 - Accepts custom `ButtonComponent` for UI customization
-- Calls `onOrderPlaced` callback after successful payment
+- Calls `onOrderPlaced` callback **only as a fallback** (see payment completion below)
+
+#### Payment completion — preferred path (accept_url redirect)
+
+When the Reepay `Accept` event fires (overlay/embedded) or the user returns from Reepay (redirect mode), the browser MUST be redirected to the `accept_url` page rather than calling a Next.js server action directly. This avoids:
+
+1. **Race condition**: the Reepay JS SDK fires `Accept` before Reepay's REST API marks the charge as "authorized". Calling `cart.complete()` immediately returns `{ type: "cart" }` (not `"order"`), so no redirect happens.
+2. **Next.js redirect instability**: calling `redirect()` from inside a Reepay SDK callback (outside React event handling) can behave unpredictably.
+
+```tsx
+// PREFERRED — browser navigates to accept page which runs completeOrder() server-side
+if (acceptUrl) {
+  window.location.href = acceptUrl
+  return
+}
+
+// FALLBACK — when accept_url is not in session data (old sessions)
+await onOrderPlaced?.(cart.id)
+```
+
+The `accept_url` must be stored in the Medusa payment session data (backend `initiatePayment` return value) and passed when initiating the session:
+
+```tsx
+sessionData.data = {
+  extra: {
+    accept_url: `${baseUrl}/${countryCode}/checkout/frisbii/accept?cart_id=${cart.id}`,
+    cancel_url: `${baseUrl}/${countryCode}/checkout/frisbii/cancel?cart_id=${cart.id}`,
+    // ... other fields
+  },
+}
+```
+
+#### FrisbiiRedirect — correct behavior
+
+`FrisbiiRedirect` must redirect to Reepay **immediately** without calling `onComplete()`. The `onComplete` callback must **not** be invoked before the user has paid — doing so attempts to call `cart.complete()` on an unauthorized payment, which silently fails.
+
+```tsx
+// CORRECT
+useEffect(() => {
+  if (!sessionId) return
+  window.location.href = `https://checkout.reepay.com/#/${sessionId}`
+}, [sessionId])
+
+// WRONG — do not do this
+const doRedirect = async () => {
+  await onComplete?.()  // ❌ called before user has paid
+  window.location.href = `https://checkout.reepay.com/#/${sessionId}`
+}
+```
 
 ---
 
@@ -196,6 +244,30 @@ export function isFrisbii(providerId?: string): boolean {
 
 - Fetch public config from backend `/store/frisbii/config` endpoint
 - Return `null` on error (graceful degradation)
+
+### pollOrderByCart (accept page helper)
+
+- Used in the accept page to find an order created by the Reepay webhook
+- Polls `GET /store/frisbii/order-by-cart?cart_id=…` on the Medusa backend
+- The backend endpoint queries the Medusa v2 `order_cart` JOIN table (not `order.cart_id`)
+- Required because `completeOrder()` may fail if the Reepay REST API has not yet marked the charge as "authorized" when the browser arrives at the accept page
+
+```tsx
+async function pollOrderByCart(cartId: string, maxAttempts = 10, delayMs = 2000) {
+  for (let i = 0; i < maxAttempts; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, delayMs))
+    const res = await fetch(`${BACKEND_URL}/store/frisbii/order-by-cart?cart_id=${encodeURIComponent(cartId)}`, {
+      cache: "no-store",
+      headers: { "x-publishable-api-key": PUBLISHABLE_KEY },
+    })
+    if (res.ok) {
+      const data = await res.json()
+      if (data?.order_id) return data
+    }
+  }
+  return null
+}
+```
 
 ---
 
@@ -272,8 +344,13 @@ case isFrisbii(paymentSession?.provider_id):
 
 ```tsx
 if (isFrisbii(selectedPaymentMethod)) {
+  const baseUrl = window.location.origin
+  const countryCode = pathname.split("/")[1] || "us"
   sessionData.data = {
     extra: {
+      // accept_url is REQUIRED — the frontend plugin redirects the browser here
+      // after the Reepay Accept event fires (overlay/embedded), giving Reepay's
+      // REST API time to mark the charge "authorized" before completeOrder() runs.
       accept_url: `${baseUrl}/${countryCode}/checkout/frisbii/accept?cart_id=${cart.id}`,
       cancel_url: `${baseUrl}/${countryCode}/checkout/frisbii/cancel?cart_id=${cart.id}`,
       customer_email: cart.email,
@@ -287,9 +364,58 @@ if (isFrisbii(selectedPaymentMethod)) {
 
 ### Route Handlers for Redirect Mode
 
-Create route handlers at:
+Create pages (not Route Handlers) at:
 - `src/app/[countryCode]/checkout/frisbii/accept/page.tsx`
 - `src/app/[countryCode]/checkout/frisbii/cancel/page.tsx`
+
+**Critical Next.js constraints for the accept page**:
+
+1. **Never call `removeCartId()` inside a Server Component render** — `cookies().delete()` is only allowed in Server Actions and Route Handlers. Calling it during render causes a runtime crash (`Error: Cookies can only be modified in a Server Action or Route Handler`).
+2. **Never call `revalidateTag()` inside a Server Component render** for the same reason.
+3. **Use `completeOrder(cartId, { skipCookieClear: true })`** to skip the cookie operation, and defer cart clearing to the confirmed page via a Server Action.
+
+```tsx
+// accept/page.tsx — CORRECT pattern
+import { completeOrder } from "@lib/data/cart"
+import { redirect } from "next/navigation"
+
+export default async function FrisbiiAcceptPage({ searchParams, params }) {
+  const { cart_id: cartId } = await searchParams
+  const { countryCode } = await params
+
+  if (!cartId) redirect(`/${countryCode}/checkout?step=review`)
+
+  // skipCookieClear: true is REQUIRED — cannot call cookies() during SSR render
+  const result = await completeOrder(cartId!, { skipCookieClear: true })
+  if (result.success) redirect(result.redirectUrl)
+
+  // Slow path: poll backend for order created by webhook
+  const order = await pollOrderByCart(cartId!, 10, 2000)
+  if (order) redirect(`/${order.country_code}/order/${order.order_id}/confirmed`)
+
+  redirect(`/${countryCode}/checkout?step=review`)
+}
+```
+
+**Cart clearing on the confirmed page**:
+
+```ts
+// confirmed/actions.ts
+"use server"
+import { removeCartId } from "@lib/data/cookies"
+export async function clearCartAction() { await removeCartId() }
+```
+
+```tsx
+// confirmed/ClearCartOnLoad.tsx
+"use client"
+import { useEffect } from "react"
+import { clearCartAction } from "./actions"
+export default function ClearCartOnLoad() {
+  useEffect(() => { clearCartAction().catch(() => {}) }, [])
+  return null
+}
+```
 
 ---
 

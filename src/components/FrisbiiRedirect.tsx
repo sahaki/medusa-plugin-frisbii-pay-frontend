@@ -5,38 +5,35 @@ import type { FrisbiiDisplayModeProps } from "../types"
 
 /**
  * Frisbii Redirect Checkout Component
- * Redirects to Reepay hosted checkout page.
- * Calls `onComplete` before redirecting so the storefront can place the order
- * and clear the cart prior to handing off to Reepay.
+ * Redirects the browser to the Reepay hosted checkout page.
+ *
+ * For redirect mode the full payment lifecycle is:
+ *   1. This component fires a browser-level redirect to Reepay.
+ *   2. The user completes payment on Reepay's hosted page.
+ *   3. Reepay redirects the browser to the `accept_url` that was configured
+ *      when the payment session was initiated (e.g. `/[countryCode]/checkout/frisbii/accept`).
+ *   4. The accept page calls `completeOrder()` server-side to create the Medusa
+ *      order, clear the cart cookie, and redirect to the thank-you page.
+ *
+ * `onComplete` is intentionally **not** called from this component because
+ * calling it before the redirect would attempt to complete the cart before the
+ * user has paid, which causes `authorizePayment()` to fail.
+ *
  * @example
  * ```tsx
- * <FrisbiiRedirect
- *   sessionId="reepay_session_123"
- *   onComplete={async () => {
- *     await placeOrder(cartId)
- *     // cart is cleared here; Reepay's accept_url handles success navigation
- *   }}
- * />
+ * <FrisbiiRedirect sessionId="reepay_session_123" />
  * ```
  */
 export function FrisbiiRedirect({
   sessionId,
-  onComplete,
 }: Omit<FrisbiiDisplayModeProps, "onCancel">) {
   useEffect(() => {
     if (!sessionId) return
 
-    const doRedirect = async () => {
-      // Call onComplete before redirecting so the cart is cleared and the
-      // order is placed in Medusa prior to handing off to Reepay.
-      await onComplete?.()
-
-      // Redirect to Reepay hosted checkout
-      window.location.href = `https://checkout.reepay.com/#/${sessionId}`
-    }
-
-    doRedirect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Redirect immediately to the Reepay hosted checkout page.
+    // Order completion is handled by the accept_url route after Reepay
+    // redirects the browser back upon successful payment.
+    window.location.href = `https://checkout.reepay.com/#/${sessionId}`
   }, [sessionId])
 
   return <div className="text-center py-4">Redirecting to payment...</div>

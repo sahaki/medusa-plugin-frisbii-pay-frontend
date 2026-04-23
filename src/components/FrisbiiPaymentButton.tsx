@@ -59,6 +59,16 @@ export function FrisbiiPaymentButton({
     ((session?.data as Record<string, unknown>)?.display_type as string) ||
     "overlay"
 
+  // accept_url is stored in session data by the backend (initiatePayment).
+  // Redirecting the browser to this URL after the Reepay Accept event is the
+  // most reliable way to complete the order because:
+  //   1. The HTTP roundtrip gives Reepay time to mark the charge as "authorized".
+  //   2. completeOrder() runs server-side in a proper Server Component context.
+  //   3. It avoids having to call a Next.js server action from within a
+  //      third-party SDK callback, which can have unpredictable redirect behaviour.
+  const acceptUrl = (session?.data as Record<string, unknown>)
+    ?.accept_url as string | null | undefined
+
   console.log("FrisbiiPaymentButton Debug:", {
     allSessions: cart?.payment_collection?.payment_sessions,
     foundSession: session,
@@ -97,13 +107,31 @@ export function FrisbiiPaymentButton({
     setSubmitting(true)
     setError(null)
 
+    // Preferred path: redirect the browser to the accept_url page.
+    // The accept_url page runs completeOrder() server-side, which:
+    //   • avoids the race condition where the Reepay charge is not yet
+    //     "authorized" when we call cart.complete() immediately after the
+    //     SDK Accept event fires;
+    //   • handles removeCartId() and redirect() in a stable Server Component
+    //     context rather than inside a Reepay SDK callback.
+    if (acceptUrl) {
+      window.location.href = acceptUrl
+      return // Browser will navigate; no state cleanup needed.
+    }
+
+    // Fallback: call onOrderPlaced directly when accept_url is not available
+    // (e.g. old sessions created before the backend stored accept_url).
     try {
       if (onOrderPlaced) {
         await onOrderPlaced(cart.id)
       }
     } catch (err: any) {
-      // Ignore NEXT_REDIRECT errors (expected during navigation)
-      if (!err.message?.includes("NEXT_REDIRECT")) {
+      // next/navigation redirect() throws a NEXT_REDIRECT error.
+      // Check both err.digest (Next.js 14+) and err.message for compatibility.
+      const isNextRedirect =
+        (err?.digest && String(err.digest).startsWith("NEXT_REDIRECT")) ||
+        err?.message?.includes("NEXT_REDIRECT")
+      if (!isNextRedirect) {
         setError(err.message || "Failed to place order")
       }
     } finally {

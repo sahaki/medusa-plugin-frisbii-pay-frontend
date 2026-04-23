@@ -193,7 +193,128 @@ Content-Security-Policy:
 
 ---
 
-### Issue: Payment Completes But Order Not Created
+### Issue: Payment Succeeds But No Redirect to Thank-You Page and Cart Not Cleared
+
+**Symptoms**:
+- User completes payment in the Reepay overlay/modal
+- An order IS created in the Medusa admin
+- The browser stays on the checkout page (no redirect to `/order/…/confirmed`)
+- Cart items are still visible (cart cookie not cleared)
+
+**Root Cause** (fixed in plugin v0.1.0-beta.2+):
+
+```
+Reepay "Accept" event fires (JS SDK)
+      ↓
+Frontend immediately calls placeOrder(cart.id) via server action
+      ↓
+Medusa calls authorizePayment() → checks Reepay REST API for charge state
+      ↓
+RACE CONDITION: Reepay's API still shows charge as "pending"
+  (the SDK event fires before Reepay's internal state is fully propagated)
+      ↓
+authorizePayment() returns "pending"
+      ↓
+cart.complete() returns { type: "cart" }  ← not an order
+      ↓
+❌ placeOrder() returns early — no redirect, no removeCartId()
+
+... later ...
+Reepay webhook "invoice_authorized" arrives
+Medusa processPaymentWorkflow creates the order ✅
+But the browser is still on the checkout page ❌
+```
+
+**Solution (applied automatically in current plugin version)**:
+
+The `FrisbiiPaymentButton` now redirects the browser to the `accept_url` route
+(e.g. `/dk/checkout/frisbii/accept?cart_id=…`) instead of calling `placeOrder()`
+directly from the Reepay SDK callback.  The extra HTTP roundtrip gives Reepay
+time to mark the charge as "authorized", so `completeOrder()` on the accept
+page reliably succeeds.
+
+The `accept_url` is stored in the Medusa payment session data by the backend
+plugin's `initiatePayment()`. Any session initiated before this fix was
+deployed will fall back to the old `onOrderPlaced(cartId)` path.
+
+**Required setup**:
+
+1. The storefront must pass `accept_url` when initiating the payment session:
+
+```tsx
+// In your payment component handleSubmit (payment/index.tsx)
+if (isFrisbii(selectedPaymentMethod)) {
+  const baseUrl = window.location.origin
+  const countryCode = pathname.split("/")[1] || "us"
+  sessionData.data = {
+    extra: {
+      accept_url: `${baseUrl}/${countryCode}/checkout/frisbii/accept?cart_id=${cart.id}`,
+      cancel_url: `${baseUrl}/${countryCode}/checkout/frisbii/cancel?cart_id=${cart.id}`,
+    },
+  }
+}
+```
+
+2. The accept page must exist at:
+   `src/app/[countryCode]/(checkout)/checkout/frisbii/accept/page.tsx`
+
+   Use the two-path pattern with `skipCookieClear: true` (required — Next.js does not allow `cookies().delete()` during Server Component render):
+
+```tsx
+import { completeOrder } from "@lib/data/cart"
+import { redirect } from "next/navigation"
+
+const BACKEND_URL = process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"
+const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || ""
+
+async function pollOrderByCart(cartId: string, maxAttempts = 10, delayMs = 2000) {
+  for (let i = 0; i < maxAttempts; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, delayMs))
+    try {
+      const res = await fetch(`${BACKEND_URL}/store/frisbii/order-by-cart?cart_id=${encodeURIComponent(cartId)}`, {
+        cache: "no-store", headers: { "x-publishable-api-key": PUBLISHABLE_KEY }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data?.order_id) return { order_id: data.order_id, country_code: data.country_code || "dk" }
+      }
+    } catch {}
+  }
+  return null
+}
+
+export default async function FrisbiiAcceptPage({ searchParams, params }) {
+  const { cart_id: cartId } = await searchParams
+  const { countryCode } = await params
+
+  if (!cartId) redirect(`/${countryCode}/checkout?step=review`)
+
+  const result = await completeOrder(cartId!, { skipCookieClear: true })
+  if (result.success) redirect(result.redirectUrl)
+
+  const order = await pollOrderByCart(cartId!, 10, 2000)
+  if (order) redirect(`/${order.country_code}/order/${order.order_id}/confirmed`)
+
+  redirect(`/${countryCode}/checkout?step=review`)
+}
+```
+
+3. The confirmed page must clear the cart via a Server Action (see INSTALLATION.md Step 8).
+
+3. Rebuild the backend plugin and restart both servers after updating:
+
+```bash
+# Backend plugin
+cd /path/to/medusa-plugin-frisbii-pay
+npm run build
+
+# Restart medusa-store (picks up new .medusa/server)
+# Then restart medusa-store-storefront (picks up new dist/)
+```
+
+---
+
+### Issue: Payment Completes But Order Not Created in Medusa
 
 **Symptoms**:
 - Payment succeeds in Reepay
@@ -493,6 +614,47 @@ const sessionData = {
   }
 }
 ```
+
+---
+
+### Issue: Accept Page Server-Side Exception (500 Error)
+
+**Symptoms**:
+- After 3DS / Reepay payment, browser lands on `/dk/checkout/frisbii/accept?cart_id=…`
+- Page shows "Application error: a server-side exception has occurred"
+- Digest code shown, or console shows:
+
+```
+Error: Cookies can only be modified in a Server Action or Route Handler.
+```
+
+**Root Cause**: The accept page is a Next.js **Server Component**. Calling `removeCartId()` (which calls `cookies().delete()`) or `revalidateTag()` directly inside its render function is not allowed — these are only permitted in **Server Actions** and **Route Handlers**.
+
+**Solution**: 
+1. Pass `{ skipCookieClear: true }` to `completeOrder()` in the accept page.
+2. Move cart clearing to the confirmed page via a `"use server"` Server Action + `"use client"` component.
+
+See INSTALLATION.md Steps 7–8 for the complete code pattern.
+
+---
+
+### Issue: Accept Page Redirects to `checkout?step=review` Instead of Confirmed Page
+
+**Symptoms**:
+- Browser returns from Reepay to `checkout?step=review` instead of `/order/…/confirmed`
+- 404 shown on the review step
+
+**Cause A — `order_cart` table not queried (backend plugin < v0.1.0-beta.2)**:
+
+The `GET /store/frisbii/order-by-cart` endpoint was querying a non-existent `cart_id` column on the `order` table. Medusa v2 stores cart→order links in the `order_cart` JOIN table. Update the backend plugin to v0.1.0-beta.2 or later.
+
+**Cause B — `completeOrder()` retries too short**:
+
+The default delay strategy (`[2000, 3000, 5000]` ms, 4 attempts) may not be enough if Reepay's REST API is slow. Increase `MAX_ATTEMPTS` or delays in your `completeOrder()` implementation.
+
+**Cause C — `pollOrderByCart` timeout too short**:
+
+The slow path polls up to `10 × 2000 ms = 20 s`. If the Reepay webhook takes longer, increase `maxAttempts` in the `pollOrderByCart` call in your accept page.
 
 ---
 
