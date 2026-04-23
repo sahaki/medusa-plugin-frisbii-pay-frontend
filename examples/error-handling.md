@@ -242,7 +242,116 @@ const PaymentWithErrorHandling = ({ sessionId, config }) => {
 
 ---
 
-### 4. Network Error Handling
+### 4. Accept Page 500 Error (Server Component Constraint)
+
+A common error when using redirect mode is a **500** on the accept page with the message:
+
+> `Error: Cookies can only be modified in a Server Action or Route Handler.`
+
+This happens because `completeOrder()` internally calls `removeCartId()` which calls `cookies().delete()`. Next.js does not allow cookie mutation during a Server Component render.
+
+**Fix**: pass `skipCookieClear: true` to `completeOrder()` in the accept page, then clear the cart from the confirmed page using a Server Action:
+
+```tsx
+// src/app/[countryCode]/checkout/frisbii/accept/page.tsx
+
+export default async function FrisbiiAcceptPage({ searchParams, params }) {
+  const { cart_id: cartId } = await searchParams
+  const { countryCode } = await params
+
+  // ✅ skipCookieClear prevents cookies().delete() during render
+  const result = await completeOrder(cartId!, { skipCookieClear: true })
+  if (result.success) redirect(result.redirectUrl)
+
+  // fallback ...
+}
+```
+
+```ts
+// src/app/[countryCode]/(main)/order/[id]/confirmed/actions.ts
+"use server"
+import { removeCartId } from "@lib/data/cookies"
+export async function clearCartAction() {
+  await removeCartId()
+}
+```
+
+```tsx
+// src/app/[countryCode]/(main)/order/[id]/confirmed/ClearCartOnLoad.tsx
+"use client"
+import { useEffect } from "react"
+import { clearCartAction } from "./actions"
+
+export default function ClearCartOnLoad() {
+  useEffect(() => { clearCartAction().catch(() => {}) }, [])
+  return null
+}
+```
+
+---
+
+### 5. Webhook Race Condition (Order Not Yet Created)
+
+Reepay redirects the browser to `accept_url` **immediately after the customer completes payment**, often *before* the payment webhook is processed by the backend. This means:
+
+- `completeOrder()` may not find a completed charge yet and return an error.
+- The Medusa order does not exist in the database yet.
+
+**Symptoms**: accept page hangs or falls through to the fallback redirect.
+
+**Fix**: implement a two-path accept page with a slow-path poll fallback:
+
+```tsx
+const BACKEND_URL = process.env.MEDUSA_BACKEND_URL || "http://localhost:9000"
+const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || ""
+
+// Polls /store/frisbii/order-by-cart until webhook creates the order
+async function pollOrderByCart(
+  cartId: string,
+  maxAttempts = 10,
+  delayMs = 2000
+): Promise<{ order_id: string; country_code: string } | null> {
+  for (let i = 0; i < maxAttempts; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, delayMs))
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/store/frisbii/order-by-cart?cart_id=${encodeURIComponent(cartId)}`,
+        { cache: "no-store", headers: { "x-publishable-api-key": PUBLISHABLE_KEY } }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        if (data?.order_id)
+          return { order_id: data.order_id, country_code: data.country_code || "dk" }
+      }
+    } catch {}
+  }
+  return null
+}
+
+export default async function FrisbiiAcceptPage({ searchParams, params }) {
+  const { cart_id: cartId } = await searchParams
+  const { countryCode } = await params
+
+  if (!cartId) redirect(`/${countryCode}/checkout?step=review`)
+
+  // Fast path: completeOrder triggers cart.complete() with retries (~10–20 s)
+  const result = await completeOrder(cartId!, { skipCookieClear: true })
+  if (result.success) redirect(result.redirectUrl)
+
+  // Slow path: webhook not yet processed — poll the order_cart JOIN table
+  const order = await pollOrderByCart(cartId!, 10, 2000)
+  if (order) redirect(`/${order.country_code}/order/${order.order_id}/confirmed`)
+
+  // Final fallback
+  redirect(`/${countryCode}/checkout?step=review`)
+}
+```
+
+> This requires the `GET /store/frisbii/order-by-cart` endpoint from `@montaekung/medusa-plugin-frisbii-pay` v0.1.0-beta.2 or later.
+
+---
+
+### 6. Network Error Handling
 
 ```tsx
 const RobustFrisbiiPaymentButton = ({ cart, onOrderPlaced }) => {
@@ -374,10 +483,10 @@ class FrisbiiErrorBoundary extends Component<Props, State> {
               Reload Page
             </button>
             <button
-              onClick={() => (window.location.href = "/checkout?step=payment")}
+              onClick={() => (window.location.href = "/checkout")}
               className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
             >
-              Back to Payment Selection
+              Back to Checkout
             </button>
           </div>
         </div>
@@ -451,6 +560,10 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Payment provider is temporarily unavailable. Please try again later.",
   INVALID_CART: "Your cart is invalid. Please refresh and try again.",
   ORDER_ALREADY_PLACED: "This order has already been placed.",
+  ACCEPT_PAGE_ERROR:
+    "There was an issue confirming your order. Please contact support with your payment confirmation.",
+  ORDER_NOT_FOUND:
+    "Your order could not be found yet. Please wait a moment and refresh the page.",
   
   // Frontend errors
   SDK_LOAD_FAILED:

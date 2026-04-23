@@ -141,7 +141,7 @@ Create the accept/cancel pages to process Reepay callbacks. The accept page uses
 
 > **Important — Next.js constraints**: `removeCartId()` (which calls `cookies().delete()`) cannot be called during a Server Component render. Use `skipCookieClear: true` and clear the cart from the confirmed page instead (see Step 5).
 
-**File**: `src/app/[countryCode]/checkout/frisbii/accept/page.tsx`
+**File**: `src/app/[countryCode]/(checkout)/checkout/frisbii/accept/page.tsx`
 
 ```tsx
 import { completeOrder } from "@lib/data/cart"
@@ -200,7 +200,7 @@ export default async function FrisbiiAcceptPage({
 }
 ```
 
-**File**: `src/app/[countryCode]/checkout/frisbii/cancel/page.tsx`
+**File**: `src/app/[countryCode]/(checkout)/checkout/frisbii/cancel/page.tsx`
 
 ```tsx
 "use client"

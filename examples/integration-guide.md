@@ -156,8 +156,10 @@ const handleSubmit = async () => {
 
         sessionData.data = {
           extra: {
-            accept_url: `${baseUrl}/${countryCode}/checkout?step=review`,
-            cancel_url: `${baseUrl}/${countryCode}/checkout?step=payment`,
+            // accept_url MUST point to a dedicated accept page — NOT a checkout step.
+            // Reepay redirects the browser here before the webhook fires.
+            accept_url: `${baseUrl}/${countryCode}/checkout/frisbii/accept?cart_id=${cart.id}`,
+            cancel_url: `${baseUrl}/${countryCode}/checkout/frisbii/cancel?cart_id=${cart.id}`,
             customer_email: cart.email || addr?.email || "",
             customer_first_name: addr?.first_name || "",
             customer_last_name: addr?.last_name || "",
@@ -203,7 +205,9 @@ const handleSubmit = async () => {
 4. **Complete Payment**
    - Click "Place order"
    - Frisbii payment UI should appear
-   - Complete test payment
+   - Complete test payment (including 3DS if prompted)
+   - You should be redirected to the order confirmed page
+   - Cart should be cleared (Cart 0)
 
 ---
 
@@ -256,6 +260,170 @@ const CustomButton = ({ onClick, disabled, children }) => (
 
 ---
 
+### Step 6: Create Accept / Cancel Pages
+
+After Reepay processes payment, it redirects the browser back to `accept_url`. Create a dedicated **Server Component page** (not a Route Handler) at that path.
+
+> **Important**: Use `skipCookieClear: true` in `completeOrder()` because `cookies().delete()` cannot be called during a Next.js Server Component render — it must be done in a Server Action (Step 7).
+
+**File**: `src/app/[countryCode]/checkout/frisbii/accept/page.tsx`
+
+```tsx
+import { completeOrder } from "@lib/data/cart"
+import { redirect } from "next/navigation"
+
+const BACKEND_URL =
+  process.env.MEDUSA_BACKEND_URL ||
+  process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL ||
+  "http://localhost:9000"
+const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || ""
+
+// Slow-path: polls /store/frisbii/order-by-cart until webhook creates the order
+async function pollOrderByCart(
+  cartId: string,
+  maxAttempts = 10,
+  delayMs = 2000
+): Promise<{ order_id: string; country_code: string } | null> {
+  for (let i = 0; i < maxAttempts; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, delayMs))
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/store/frisbii/order-by-cart?cart_id=${encodeURIComponent(cartId)}`,
+        { cache: "no-store", headers: { "x-publishable-api-key": PUBLISHABLE_KEY } }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        if (data?.order_id)
+          return { order_id: data.order_id, country_code: data.country_code || "dk" }
+      }
+    } catch {}
+  }
+  return null
+}
+
+export default async function FrisbiiAcceptPage({
+  searchParams,
+  params,
+}: {
+  searchParams: Promise<{ cart_id?: string }>
+  params: Promise<{ countryCode: string }>
+}) {
+  const { cart_id: cartId } = await searchParams
+  const { countryCode } = await params
+
+  if (!cartId) redirect(`/${countryCode}/checkout?step=review`)
+
+  // Fast path: completeOrder() with internal retries (~10–20 s total)
+  // skipCookieClear is required — removeCartId() cannot run during SSR render
+  const result = await completeOrder(cartId!, { skipCookieClear: true })
+  if (result.success) redirect(result.redirectUrl)
+
+  // Slow path: Reepay webhook may not have fired yet — poll for the order
+  const order = await pollOrderByCart(cartId!, 10, 2000)
+  if (order) redirect(`/${order.country_code}/order/${order.order_id}/confirmed`)
+
+  // Final fallback
+  redirect(`/${countryCode}/checkout?step=review`)
+}
+```
+
+**File**: `src/app/[countryCode]/checkout/frisbii/cancel/page.tsx`
+
+```tsx
+"use client"
+
+import { useParams, useRouter } from "next/navigation"
+import { useEffect } from "react"
+
+export default function FrisbiiCancelPage() {
+  const router = useRouter()
+  const { countryCode } = useParams()
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      router.push(`/${countryCode}/checkout`)
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [router, countryCode])
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
+      <p>Payment was cancelled. Redirecting back to checkout...</p>
+    </div>
+  )
+}
+```
+
+Also update `completeOrder()` in `src/lib/data/cart.ts` to accept the `skipCookieClear` option:
+
+```ts
+export async function completeOrder(
+  cartId: string,
+  options?: { skipCookieClear?: boolean }
+) {
+  // ...
+  if (cartRes?.type === "order") {
+    if (!options?.skipCookieClear) {
+      await removeCartId()
+    }
+    return { success: true, redirectUrl: `/${countryCode}/order/${cartRes.order.id}/confirmed` }
+  }
+  // ...
+}
+```
+
+---
+
+### Step 7: Clear Cart on the Confirmed Page
+
+Since `removeCartId()` was skipped in the accept page, clean up the cart cookie via a **Server Action** when the confirmed page mounts.
+
+**File**: `src/app/[countryCode]/(main)/order/[id]/confirmed/actions.ts`
+
+```ts
+"use server"
+
+import { removeCartId } from "@lib/data/cookies"
+
+export async function clearCartAction() {
+  await removeCartId()
+}
+```
+
+**File**: `src/app/[countryCode]/(main)/order/[id]/confirmed/ClearCartOnLoad.tsx`
+
+```tsx
+"use client"
+
+import { useEffect } from "react"
+import { clearCartAction } from "./actions"
+
+export default function ClearCartOnLoad() {
+  useEffect(() => {
+    clearCartAction().catch(() => {})
+  }, [])
+  return null
+}
+```
+
+**File**: `src/app/[countryCode]/(main)/order/[id]/confirmed/page.tsx` — add `<ClearCartOnLoad />`:
+
+```tsx
+import ClearCartOnLoad from "./ClearCartOnLoad"
+
+export default async function OrderConfirmedPage(props: Props) {
+  // ...
+  return (
+    <>
+      <ClearCartOnLoad />
+      <OrderCompletedTemplate order={order} />
+    </>
+  )
+}
+```
+
+---
+
 ## Common Issues
 
 ### Issue: Frisbii doesn't appear in payment methods
@@ -290,6 +458,34 @@ const CustomButton = ({ onClick, disabled, children }) => (
 **Cause**: Missing "use client" directive
 
 **Solution**: Add `"use client"` at the top of your payment button file
+
+---
+
+### Issue: Accept page returns 500 — "Cookies can only be modified in a Server Action or Route Handler"
+
+**Cause**: `completeOrder()` calls `removeCartId()` which calls `cookies().delete()`. In Next.js, this is only allowed inside a Server Action or Route Handler, not during a Server Component render.
+
+**Solution**: Pass `skipCookieClear: true` to `completeOrder()` in your accept page, and clear the cart via `ClearCartOnLoad` on the confirmed page instead (see Steps 6 and 7).
+
+```tsx
+// ✅ Correct
+const result = await completeOrder(cartId!, { skipCookieClear: true })
+
+// ❌ Wrong — crashes during Server Component render
+const result = await completeOrder(cartId!)
+```
+
+---
+
+### Issue: After payment, browser is redirected back to `checkout?step=review`
+
+**Cause**: Reepay redirects the browser to `accept_url` *before* the payment webhook fires. If the `accept_url` was set to a checkout step (e.g., `checkout?step=review`) instead of a dedicated accept page, the order is never completed.
+
+Also occurs when `completeOrder()` retries are exhausted and `pollOrderByCart()` is not implemented.
+
+**Solution**:
+1. Set `accept_url` to a **dedicated page**: `/{countryCode}/checkout/frisbii/accept?cart_id={cartId}` (see Step 6)
+2. Implement the two-path accept page: fast path via `completeOrder()` + slow path via `pollOrderByCart()`
 
 ---
 
