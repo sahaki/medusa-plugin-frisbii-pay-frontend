@@ -43,7 +43,7 @@ export default async function CheckoutForm({
         frisbiiTitle={frisbiiConfig?.title}
       />
 
-      <Review cart={cart} />
+      <Review cart={cart} frisbiiLocale={frisbiiConfig?.locale} />
     </div>
   )
 }

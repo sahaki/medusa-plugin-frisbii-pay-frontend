@@ -14,11 +14,13 @@ import { isFrisbii } from "@lib/constants"
 type PaymentButtonProps = {
   cart: HttpTypes.StoreCart
   "data-testid": string
+  frisbiiLocale?: string
 }
 
 const PaymentButton: React.FC<PaymentButtonProps> = ({
   cart,
   "data-testid": dataTestId,
+  frisbiiLocale,
 }) => {
   const notReady =
     !cart ||
@@ -56,6 +58,7 @@ const PaymentButton: React.FC<PaymentButtonProps> = ({
         <FrisbiiPaymentButton
           cart={cart}
           notReady={!cart.shipping_address || !cart.billing_address}
+          locale={frisbiiLocale}
           ButtonComponent={({ onClick, disabled, children }) => (
             <Button
               size="large"
