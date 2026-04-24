@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 import { useFrisbiiCheckout } from "../hooks/useFrisbiiCheckout"
 import type { FrisbiiDisplayModeProps } from "../types"
+import { getTranslation } from "../i18n"
 
 /**
  * Frisbii Embedded Checkout Component
@@ -18,9 +19,11 @@ import type { FrisbiiDisplayModeProps } from "../types"
  */
 export function FrisbiiEmbedded({
   sessionId,
+  locale,
   onComplete,
   onCancel,
 }: FrisbiiDisplayModeProps) {
+  const t = getTranslation(locale)
   const containerRef = useRef<HTMLDivElement>(null)
   const { loaded } = useFrisbiiCheckout(sessionId)
 
@@ -48,5 +51,12 @@ export function FrisbiiEmbedded({
     }
   }, [loaded, sessionId, onComplete, onCancel])
 
-  return <div ref={containerRef} className="w-full min-h-[400px]" />
+  return (
+    <div className="w-full">
+      {!loaded && (
+        <div className="text-center py-4">{t.loadingPaymentForm}</div>
+      )}
+      <div ref={containerRef} className="w-full min-h-[400px]" />
+    </div>
+  )
 }

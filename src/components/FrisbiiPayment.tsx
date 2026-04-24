@@ -24,11 +24,14 @@ export function FrisbiiPayment({
   onComplete,
   onCancel,
 }: FrisbiiPaymentProps) {
+  const locale = config.locale
+
   switch (config.display_type) {
     case "embedded":
       return (
         <FrisbiiEmbedded
           sessionId={sessionId}
+          locale={locale}
           onComplete={onComplete}
           onCancel={onCancel}
         />
@@ -37,17 +40,19 @@ export function FrisbiiPayment({
       return (
         <FrisbiiOverlay
           sessionId={sessionId}
+          locale={locale}
           onComplete={onComplete}
           onCancel={onCancel}
         />
       )
     case "redirect":
-      return <FrisbiiRedirect sessionId={sessionId} onComplete={onComplete} />
+      return <FrisbiiRedirect sessionId={sessionId} locale={locale} onComplete={onComplete} />
     default:
       // Default to overlay if display_type is invalid
       return (
         <FrisbiiOverlay
           sessionId={sessionId}
+          locale={locale}
           onComplete={onComplete}
           onCancel={onCancel}
         />

@@ -10,6 +10,13 @@ export interface FrisbiiPaymentButtonProps {
   cart: any
   /** Whether the button should be disabled */
   notReady?: boolean
+  /**
+   * Current locale from Admin config (e.g. "en_GB", "da_DK").
+   * When provided, overrides the locale stored in the payment session data.
+   * Pass this from `getFrisbiiPublicConfig()` so UI text always reflects
+   * the latest Admin setting rather than the (potentially stale) session locale.
+   */
+  locale?: string
   /** Button component to use (default: basic button) */
   ButtonComponent?: React.ComponentType<{
     onClick: () => void
@@ -41,6 +48,7 @@ export interface FrisbiiPaymentButtonProps {
 export function FrisbiiPaymentButton({
   cart,
   notReady = false,
+  locale: localeProp,
   ButtonComponent,
   onOrderPlaced,
   "data-testid": dataTestId,
@@ -59,7 +67,10 @@ export function FrisbiiPaymentButton({
   const displayType =
     ((session?.data as Record<string, unknown>)?.display_type as string) ||
     "overlay"
-  const locale = (session?.data as Record<string, unknown>)?.locale as string | undefined
+  const sessionLocale = (session?.data as Record<string, unknown>)?.locale as string | undefined
+  // Prefer the prop locale (from live Admin config) over the session-stored locale,
+  // which may be stale if the Admin changed the locale after the session was created.
+  const locale = localeProp ?? sessionLocale
   const t = getTranslation(locale)
 
   // accept_url is stored in session data by the backend (initiatePayment).
