@@ -1,4 +1,4 @@
-ดำเนินการ Test ตามกระบวนการเอกสาร D:\my_cource\medusa\001\medusa-plugin-frisbii-pay-frontend\.github\prompts\test-frisbii-pay-guest.prompt.md ผ่าน playwrite ซึ่งไฟล์ดังกล่าวถูกสร้างเพื่อการตรวจสอบกระบวนการ checkout ของ plugin D:\my_cource\medusa\001\medusa-plugin-frisbii-pay-frontend
+ดำเนินการ Test ตามกระบวนการเอกสาร D:\my_cource\medusa\001\medusa-plugin-frisbii-pay-frontend\.github\prompts\test-frisbii-pay-guest-checkout.prompt.md ผ่าน playwrite ซึ่งไฟล์ดังกล่าวถูกสร้างเพื่อการตรวจสอบกระบวนการ checkout ของ plugin D:\my_cource\medusa\001\medusa-plugin-frisbii-pay-frontend
 
 เป้าหมายคือ ทดสอบการ checkout ได้สำเร็จและ user ไปยังหน้า thank you page และระบบ ทำการ clear cart items ได้อย่างถูกต้อง
 
