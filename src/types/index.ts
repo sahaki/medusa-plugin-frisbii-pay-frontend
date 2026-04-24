@@ -50,6 +50,8 @@ export interface FrisbiiPaymentProps {
 export interface FrisbiiDisplayModeProps {
   /** Reepay session ID */
   sessionId: string
+  /** Locale for translated UI text (e.g. "en_GB", "da_DK") */
+  locale?: string
   /** Callback when payment is successfully completed */
   onComplete?: () => void
   /** Callback when payment is cancelled */

@@ -27,6 +27,9 @@ export {
   REEPAY_SDK_SCRIPT_ID,
 } from "./lib"
 
+// i18n
+export { getTranslation } from "./i18n"
+
 // Types
 export type {
   FrisbiiDisplayType,

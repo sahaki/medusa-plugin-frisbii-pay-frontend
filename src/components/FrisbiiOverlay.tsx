@@ -3,6 +3,7 @@
 import { useEffect } from "react"
 import { useFrisbiiCheckout } from "../hooks/useFrisbiiCheckout"
 import type { FrisbiiDisplayModeProps } from "../types"
+import { getTranslation } from "../i18n"
 
 /**
  * Frisbii Overlay (Modal) Checkout Component
@@ -18,9 +19,11 @@ import type { FrisbiiDisplayModeProps } from "../types"
  */
 export function FrisbiiOverlay({
   sessionId,
+  locale,
   onComplete,
   onCancel,
 }: FrisbiiDisplayModeProps) {
+  const t = getTranslation(locale)
   const { loaded } = useFrisbiiCheckout(sessionId)
 
   useEffect(() => {
@@ -45,5 +48,5 @@ export function FrisbiiOverlay({
     }
   }, [loaded, sessionId, onComplete, onCancel])
 
-  return <div className="text-center py-4">Opening payment window...</div>
+  return <div className="text-center py-4">{t.openingPaymentWindow}</div>
 }

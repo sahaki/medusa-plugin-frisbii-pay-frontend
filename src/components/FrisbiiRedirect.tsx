@@ -2,6 +2,7 @@
 
 import { useEffect } from "react"
 import type { FrisbiiDisplayModeProps } from "../types"
+import { getTranslation } from "../i18n"
 
 /**
  * Frisbii Redirect Checkout Component
@@ -26,7 +27,9 @@ import type { FrisbiiDisplayModeProps } from "../types"
  */
 export function FrisbiiRedirect({
   sessionId,
+  locale,
 }: Omit<FrisbiiDisplayModeProps, "onCancel">) {
+  const t = getTranslation(locale)
   useEffect(() => {
     if (!sessionId) return
 
@@ -36,5 +39,5 @@ export function FrisbiiRedirect({
     window.location.href = `https://checkout.reepay.com/#/${sessionId}`
   }, [sessionId])
 
-  return <div className="text-center py-4">Redirecting to payment...</div>
+  return <div className="text-center py-4">{t.redirectingToPayment}</div>
 }

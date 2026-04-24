@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { FrisbiiPayment } from "./FrisbiiPayment"
 import type { FrisbiiPublicConfig } from "../types"
+import { getTranslation } from "../i18n"
 
 export interface FrisbiiPaymentButtonProps {
   /** Cart object from Medusa */
@@ -58,6 +59,8 @@ export function FrisbiiPaymentButton({
   const displayType =
     ((session?.data as Record<string, unknown>)?.display_type as string) ||
     "overlay"
+  const locale = (session?.data as Record<string, unknown>)?.locale as string | undefined
+  const t = getTranslation(locale)
 
   // accept_url is stored in session data by the backend (initiatePayment).
   // Redirecting the browser to this URL after the Reepay Accept event is the
@@ -97,7 +100,7 @@ export function FrisbiiPaymentButton({
     display_type: displayType as "embedded" | "overlay" | "redirect",
     allowed_payment_methods: [],
     payment_icons: [],
-    locale: "en_GB",
+    locale: locale || "en_GB",
     save_card_enabled: false,
     save_card_default_unchecked: false,
   }
@@ -189,7 +192,7 @@ export function FrisbiiPaymentButton({
             onClick={() => setShowCheckout(true)}
             disabled={notReady || !sessionId || submitting}
           >
-            {submitting ? "Processing..." : "Place order"}
+            {submitting ? t.processing : t.placeOrder}
           </Button>
           {!sessionId && !notReady && session && (
             <div className="mt-2 text-sm text-red-600" role="alert">
