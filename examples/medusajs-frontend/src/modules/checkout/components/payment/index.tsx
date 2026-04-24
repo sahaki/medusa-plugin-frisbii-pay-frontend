@@ -16,10 +16,21 @@ import { useCallback, useEffect, useState } from "react"
 const Payment = ({
   cart,
   availablePaymentMethods,
+  frisbiiTitle,
 }: {
   cart: any
   availablePaymentMethods: any[]
+  frisbiiTitle?: string
 }) => {
+  const effectivePaymentInfoMap = frisbiiTitle
+    ? {
+        ...paymentInfoMap,
+        "pp_frisbii-payment_frisbii-payment": {
+          ...paymentInfoMap["pp_frisbii-payment_frisbii-payment"],
+          title: frisbiiTitle,
+        },
+      }
+    : paymentInfoMap
   const activeSession = cart.payment_collection?.payment_sessions?.find(
     (paymentSession: any) => paymentSession.status === "pending"
   )
@@ -93,6 +104,7 @@ const Payment = ({
             extra: {
               accept_url: `${baseUrl}/${countryCode}/checkout/frisbii/accept?cart_id=${cart.id}`,
               cancel_url: `${baseUrl}/${countryCode}/checkout/frisbii/cancel?cart_id=${cart.id}`,
+              cart_id: cart.id,
               customer_email: cart.email || addr?.email || "",
               customer_first_name: addr?.first_name || "",
               customer_last_name: addr?.last_name || "",
@@ -165,14 +177,14 @@ const Payment = ({
                       <StripeCardContainer
                         paymentProviderId={paymentMethod.id}
                         selectedPaymentOptionId={selectedPaymentMethod}
-                        paymentInfoMap={paymentInfoMap}
+                        paymentInfoMap={effectivePaymentInfoMap}
                         setCardBrand={setCardBrand}
                         setError={setError}
                         setCardComplete={setCardComplete}
                       />
                     ) : (
                       <PaymentContainer
-                        paymentInfoMap={paymentInfoMap}
+                        paymentInfoMap={effectivePaymentInfoMap}
                         paymentProviderId={paymentMethod.id}
                         selectedPaymentOptionId={selectedPaymentMethod}
                       />
@@ -230,7 +242,7 @@ const Payment = ({
                   className="txt-medium text-ui-fg-subtle"
                   data-testid="payment-method-summary"
                 >
-                  {paymentInfoMap[activeSession?.provider_id]?.title ||
+                  {effectivePaymentInfoMap[activeSession?.provider_id]?.title ||
                     activeSession?.provider_id}
                 </Text>
               </div>
@@ -243,7 +255,7 @@ const Payment = ({
                   data-testid="payment-details-summary"
                 >
                   <Container className="flex items-center h-7 w-fit p-2 bg-ui-button-neutral-hover">
-                    {paymentInfoMap[selectedPaymentMethod]?.icon || (
+                    {effectivePaymentInfoMap[selectedPaymentMethod]?.icon || (
                       <CreditCard />
                     )}
                   </Container>
