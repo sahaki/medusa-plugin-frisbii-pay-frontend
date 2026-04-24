@@ -633,3 +633,26 @@ export { getFrisbiiConfig, isFrisbii, FRISBII_PROVIDER_ID, ... } from "./lib"
 // Types
 export type { FrisbiiPaymentProps, ... } from "./types"
 ```
+
+---
+
+## Development Test Servers
+
+The plugin is tested against two local servers — a Medusa **backend** and a Next.js **frontend storefront**. Both are started with `npm run dev`.
+
+### Server Locations
+
+| Role | URL | Path |
+|------|-----|------|
+| Backend | `http://localhost:9000/app/` | `D:\my_cource\medusa\002\medusa-store` |
+| Frontend | `http://localhost:8000/` | `D:\my_cource\medusa\002\medusa-store-storefront` |
+
+### Backend Admin Credentials
+
+- **Login URL**: `http://localhost:9000/app`
+- **User**: `boyd@radarsofthouse.dk`
+- **Password**: `Test#1234`
+
+### Server Management Rule
+
+> **Never start or restart either server autonomously.** Always ask the user to start/restart the server and wait for confirmation before continuing.
