@@ -1,5 +1,5 @@
 ---
-description: "Use when writing, editing, or reviewing any code in the medusa-plugin-frisbii-pay-frontend project. Covers React component conventions, hook patterns, TypeScript standards, Next.js integration rules, and Reepay SDK usage."
+description: "Use when writing, editing, or reviewing any code in the medusa-plugin-frisbii-pay-frontend project. Covers React component conventions, hook patterns, TypeScript standards, Next.js integration rules, Reepay SDK usage, and i18n translation rules."
 applyTo: "src/**"
 ---
 
@@ -198,6 +198,91 @@ const doRedirect = async () => {
   window.location.href = `https://checkout.reepay.com/#/${sessionId}`
 }
 ```
+
+---
+
+## Internationalisation (i18n) Rules
+
+### Overview
+
+All user-visible strings in this plugin are translated via `getTranslation(locale?)` from `src/i18n/index.ts`. The source-of-truth locale is `en` (English). Danish (`da`) is the second required locale.
+
+### File locations
+
+```
+src/i18n/
+  index.ts               # getTranslation(locale?) — returns translation object
+  translations/
+    en.ts                # Source of truth — all keys in English
+    da.ts                # Danish translations — must mirror en.ts keys exactly
+    index.ts             # Re-exports both translation objects
+```
+
+### Mandatory rule — always add new strings to i18n files
+
+> **Any user-visible string added to any component, hook, or utility MUST be added to the i18n translation files at the same time.** Do not hardcode English strings directly in JSX or logic.
+
+Steps when introducing a new translatable string:
+1. Choose a descriptive camelCase key (e.g. `paymentInitFailed`).
+2. Add the English string to `src/i18n/translations/en.ts`.
+3. Add the Danish translation to `src/i18n/translations/da.ts`.
+4. Use `t.<key>` via `getTranslation(locale)` in the component.
+
+```ts
+// src/i18n/translations/en.ts — add new key here
+export const en = {
+  placeOrder: "Place order",
+  processing: "Processing...",
+  // ✅ new key
+  sessionExpired: "Payment session expired. Please try again.",
+}
+
+// src/i18n/translations/da.ts — add Danish equivalent here
+export const da = {
+  placeOrder: "Afgiv ordre",
+  processing: "Behandler...",
+  // ✅ Danish translation must be added at the same time
+  sessionExpired: "Betalingssessionen er udløbet. Prøv igen.",
+}
+```
+
+```tsx
+// Component usage
+const t = getTranslation(locale)
+return <span>{t.sessionExpired}</span>  // ✅ translated
+// return <span>Payment session expired.</span>  // ❌ hardcoded — not allowed
+```
+
+### What counts as a translatable string
+
+The following must always go through i18n:
+- Button labels (e.g. `"Place order"`, `"Processing..."`)
+- Status messages shown to the user (e.g. `"Opening payment window..."`)
+- Error messages shown in the UI (e.g. `"Payment could not be initialised. Please try again."`)
+- Loading indicators visible to the end-user (e.g. `"Redirecting to payment..."`)
+- Any text rendered inside JSX
+
+The following are **exempt** from i18n:
+- Internal `console.error` / `console.warn` messages — these are developer-facing only
+- `data-testid` attribute values
+- CSS class names and style strings
+- TypeScript type/interface identifiers
+
+### Key naming convention
+
+| Pattern | Example key | Example EN value |
+|---------|-------------|------------------|
+| Action button | `placeOrder` | `"Place order"` |
+| Progress/loading | `processing` | `"Processing..."` |
+| Status message | `openingPaymentWindow` | `"Opening payment window..."` |
+| Error message | `paymentInitFailed` | `"Payment could not be initialised. Please try again."` |
+| Cancellation | `paymentCancelled` | `"Payment was cancelled."` |
+
+### Keeping `en.ts` and `da.ts` in sync
+
+- Both files must always have **identical sets of keys**.
+- If a key exists in `en.ts` but not in `da.ts` (or vice versa), that is a bug — fix it immediately.
+- When removing a key, remove it from both files at the same time.
 
 ---
 
