@@ -367,6 +367,40 @@ export async function getFrisbiiConfig(
 }
 ```
 
+> **Note (storefront — server-side use)**: When fetching config inside a Next.js Server Component
+> (e.g. `CheckoutForm`), use `sdk.client.fetch("/store/frisbii/config", { method: "GET", cache: "no-store" })`
+> instead of native `fetch`. The store route requires the `x-publishable-api-key` header which
+> the Medusa SDK adds automatically. See [INSTALLATION.md – Step 9](./INSTALLATION.md#9-enable-admin-payment-display-settings-recommended).
+
+---
+
+## Admin Payment Display Settings Flow
+
+The backend exposes `GET /store/frisbii/config` which returns `{config: {enabled, title, display_type}}`. The storefront `CheckoutForm` (a Next.js Server Component) calls this endpoint on every checkout render to apply the admin-configured state:
+
+```
+Medusa Admin (browser)
+  └─ Merchant sets Enabled + Title
+       └─ POST /admin/frisbii/config (saves to DB)
+
+Next.js Storefront (server render)
+  └─ CheckoutForm Server Component
+       └─ getFrisbiiPublicConfig()           ← sdk.client.fetch, cache: no-store
+            └─ GET /store/frisbii/config
+                 └─ { config: { enabled, title } }
+                      │
+             ┌────────┴──────────────┐
+             ▼                       ▼
+     enabled === false         title !== ""
+     filter Frisbii out        pass frisbiiTitle prop
+     from paymentMethods       to <Payment> component
+                                    └─ effectivePaymentInfoMap
+                                         overrides default title
+                                         in payment method list
+```
+
+**Failure mode (safe fallback)**: If the API call fails (network error, wrong env var), `getFrisbiiPublicConfig()` returns `null`. The filter is not applied (`null?.enabled !== false`), so Frisbii remains visible — the safest degradation for a payment option.
+
 ---
 
 ## Data Flow

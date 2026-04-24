@@ -237,6 +237,42 @@ const handleSubmit = async () => {
 
 ---
 
+## Admin Payment Display Settings
+
+The backend plugin attaches a widget to the Medusa Admin under **Settings → Frisbii Pay**. Two settings are available:
+
+| Setting | Effect |
+|---------|--------|
+| **Enabled** | When OFF, Frisbii Pay is hidden from the checkout payment list entirely. |
+| **Title** | Overrides the label shown next to the Frisbii option (default: "Frisbii Pay"). |
+
+These settings are stored server-side and served via `GET /store/frisbii/config`. The storefront must be updated to consume them (see [INSTALLATION.md – Step 9](./INSTALLATION.md#9-enable-admin-payment-display-settings-recommended)).
+
+### Data Flow
+
+```
+Admin => saves settings => Medusa DB
+                              │
+                              ▼
+                  GET /store/frisbii/config
+                              │
+                              ▼
+               getFrisbiiPublicConfig() (server-side)
+                              │
+                    ┌─────────┴──────────┐
+                    ▼                    ▼
+           enabled === false      title !== ""
+           filter Frisbii out     override paymentInfoMap
+```
+
+### Behavior When Settings Are Not Configured
+
+If the admin has never saved settings, `config` in the API response will be `null`. The `getFrisbiiPublicConfig()` function handles this by returning `{ enabled: false, title: "" }` — this means Frisbii is **hidden by default** until the admin explicitly enables it.
+
+> To show Frisbii immediately after install, go to **Settings → Frisbii Pay** in the Admin panel and set **Enabled = ON**.
+
+---
+
 ## TypeScript Configuration
 
 ### Strict Type Checking
@@ -466,6 +502,10 @@ Before going to production, verify:
 - ✅ Payment flow end-to-end tested
 - ✅ Mobile responsiveness verified
 - ✅ CSP headers allow Reepay (if applicable)
+- ✅ **Admin Display Settings**: `getFrisbiiPublicConfig()` added to storefront payment data helpers
+- ✅ **Admin Display Settings**: `CheckoutForm` updated to filter methods and pass `frisbiiTitle`
+- ✅ **Admin Display Settings**: `Payment` component updated to use `effectivePaymentInfoMap`
+- ✅ **Admin Panel**: Frisbii Payment set to **Enabled = ON** in Settings → Frisbii Pay
 
 ---
 

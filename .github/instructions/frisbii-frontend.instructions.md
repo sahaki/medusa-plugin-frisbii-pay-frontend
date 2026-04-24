@@ -317,6 +317,100 @@ rp.destroy()
 
 ## Next.js Integration Patterns
 
+### Integrating Admin Payment Display Settings
+
+The backend plugin exposes `GET /store/frisbii/config` returning `{config: {enabled, title, display_type}}`. The storefront must consume this **server-side** in the `CheckoutForm` Server Component to:
+
+- Hide Frisbii from the payment list when `enabled = false`
+- Show the admin-configured title instead of the hardcoded default
+
+#### 1. `getFrisbiiPublicConfig()` in `src/lib/data/payment.ts`
+
+```ts
+import sdk from "@lib/config"
+
+export const getFrisbiiPublicConfig = async (): Promise<{
+  enabled: boolean
+  title: string
+} | null> => {
+  return sdk.client
+    .fetch<{ config: { enabled: boolean; title: string } | null }>(
+      "/store/frisbii/config",
+      { method: "GET", cache: "no-store" }
+    )
+    .then((data) => {
+      if (!data?.config) {
+        return { enabled: false, title: "" }
+      }
+      return data.config
+    })
+    .catch(() => null)
+}
+```
+
+**Critical rules**:
+- Always use `sdk.client.fetch` — NOT native `fetch`. The store route requires `x-publishable-api-key`; the SDK adds this header automatically. Native fetch returns 401.
+- Always use `cache: "no-store"` — admin changes must be reflected immediately; any cache interval will show stale data.
+- Return `{ enabled: false, title: "" }` (not `null`) when config is missing — this matches the "disabled" admin state and prevents Frisbii from leaking through the filter.
+
+#### 2. `CheckoutForm` (Server Component) — `src/modules/checkout/templates/checkout-form/index.tsx`
+
+```tsx
+import { getFrisbiiPublicConfig, listCartPaymentMethods } from "@lib/data/payment"
+
+export default async function CheckoutForm({ cart, customer }) {
+  let paymentMethods = await listCartPaymentMethods(cart.region?.id ?? "")
+  const frisbiiConfig = await getFrisbiiPublicConfig()
+
+  // Remove Frisbii from the list when disabled in admin
+  if (frisbiiConfig?.enabled === false) {
+    paymentMethods = paymentMethods?.filter(
+      (m) => !m.id.startsWith("pp_frisbii")
+    ) ?? []
+  }
+
+  return (
+    // ... existing JSX
+    <Payment
+      cart={cart}
+      availablePaymentMethods={paymentMethods}
+      frisbiiTitle={frisbiiConfig?.title}
+    />
+  )
+}
+```
+
+**Null-check rule**: Use `=== false` explicitly, never `!frisbiiConfig?.enabled`. When `getFrisbiiPublicConfig()` returns `null` (network error), Frisbii should still be shown as a safe fallback; filtering must only apply when the admin explicitly disabled it.
+
+#### 3. `Payment` component — `src/modules/checkout/components/payment/index.tsx`
+
+```tsx
+const Payment = ({
+  cart,
+  availablePaymentMethods,
+  frisbiiTitle,
+}: {
+  cart: any
+  availablePaymentMethods: any[]
+  frisbiiTitle?: string
+}) => {
+  // Override default title with admin-configured value if provided
+  const effectivePaymentInfoMap = frisbiiTitle
+    ? {
+        ...paymentInfoMap,
+        "pp_frisbii-payment_frisbii-payment": {
+          ...paymentInfoMap["pp_frisbii-payment_frisbii-payment"],
+          title: frisbiiTitle,
+        },
+      }
+    : paymentInfoMap
+
+  // Use effectivePaymentInfoMap everywhere paymentInfoMap was referenced
+}
+```
+
+---
+
 ### Adding to Payment Button
 
 ```tsx

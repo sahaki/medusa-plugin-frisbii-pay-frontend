@@ -368,6 +368,110 @@ export default async function OrderConfirmedPage(props: Props) {
 
 > For embedded or overlay modes, the accept/cancel pages and `ClearCartOnLoad` are still recommended so that cart state is reliably cleared after payment.
 
+### 9. Enable Admin Payment Display Settings (Recommended)
+
+The backend plugin includes an Admin panel widget under **Settings → Frisbii Pay** where merchants can:
+
+- **Enable / Disable** Frisbii Pay — hides the payment method from the checkout list when off.
+- **Custom Title** — overrides the default "Frisbii Pay" label shown next to the option in checkout.
+
+Three storefront code changes are required to make these settings take effect.
+
+#### 9a. Add `getFrisbiiPublicConfig()` to payment data helpers
+
+**File**: `src/lib/data/payment.ts`
+
+```ts
+import sdk from "@lib/config"
+
+export const getFrisbiiPublicConfig = async (): Promise<{
+  enabled: boolean
+  title: string
+} | null> => {
+  return sdk.client
+    .fetch<{ config: { enabled: boolean; title: string } | null }>(
+      "/store/frisbii/config",
+      { method: "GET", cache: "no-store" }
+    )
+    .then((data) => {
+      if (!data?.config) {
+        return { enabled: false, title: "" }
+      }
+      return data.config
+    })
+    .catch(() => null)
+}
+```
+
+> **Important**: Use `sdk.client.fetch`, not native `fetch`. The `/store/frisbii/config` route
+> requires the `x-publishable-api-key` header which the Medusa SDK adds automatically.
+> Native `fetch` will receive a `401` response and silently return `null`.
+>
+> Use `cache: "no-store"` so admin changes are always reflected immediately.
+
+#### 9b. Update `CheckoutForm` to filter based on admin settings
+
+**File**: `src/modules/checkout/templates/checkout-form/index.tsx`
+
+```tsx
+import { getFrisbiiPublicConfig, listCartPaymentMethods } from "@lib/data/payment"
+
+export default async function CheckoutForm({ cart, customer }) {
+  let paymentMethods = await listCartPaymentMethods(cart.region?.id ?? "")
+  const frisbiiConfig = await getFrisbiiPublicConfig()
+
+  // Hide Frisbii when the admin has disabled it
+  if (frisbiiConfig?.enabled === false) {
+    paymentMethods = paymentMethods?.filter(
+      (m) => !m.id.startsWith("pp_frisbii")
+    ) ?? []
+  }
+
+  return (
+    // ... existing JSX
+    <Payment
+      cart={cart}
+      availablePaymentMethods={paymentMethods}
+      frisbiiTitle={frisbiiConfig?.title}
+    />
+  )
+}
+```
+
+> Use `=== false` explicitly. When `getFrisbiiPublicConfig()` returns `null` (e.g. network error),
+> Frisbii should still be shown as a safe fallback — only hide it when the admin explicitly disabled it.
+
+#### 9c. Update `Payment` component to display the admin-configured title
+
+**File**: `src/modules/checkout/components/payment/index.tsx`
+
+```tsx
+const Payment = ({
+  cart,
+  availablePaymentMethods,
+  frisbiiTitle,
+}: {
+  cart: any
+  availablePaymentMethods: any[]
+  frisbiiTitle?: string  // ← new prop
+}) => {
+  // Override the default hardcoded title with the admin-configured value
+  const effectivePaymentInfoMap = frisbiiTitle
+    ? {
+        ...paymentInfoMap,
+        "pp_frisbii-payment_frisbii-payment": {
+          ...paymentInfoMap["pp_frisbii-payment_frisbii-payment"],
+          title: frisbiiTitle,
+        },
+      }
+    : paymentInfoMap
+
+  // Replace every reference to `paymentInfoMap` in this component with `effectivePaymentInfoMap`
+}
+```
+
+After applying all three changes, restart the storefront. The **Enabled** toggle and **Title** field in the Admin panel will now control what the customer sees in checkout in real time.
+
 ## Verification
 
 ### 1. Check Installation

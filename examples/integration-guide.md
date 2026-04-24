@@ -424,16 +424,104 @@ export default async function OrderConfirmedPage(props: Props) {
 
 ---
 
+### Step 8: Enable Admin Payment Display Settings
+
+Go to **Medusa Admin → Settings → Frisbii Pay** and set **Enabled = ON**. Optionally set a custom **Title**.
+
+To make these settings dynamically reflected in the storefront (no manual code changes after each admin update), apply the three snippets below.
+
+#### 8a. Add `getFrisbiiPublicConfig()` to `src/lib/data/payment.ts`
+
+```ts
+import sdk from "@lib/config"
+
+export const getFrisbiiPublicConfig = async (): Promise<{
+  enabled: boolean
+  title: string
+} | null> => {
+  return sdk.client
+    .fetch<{ config: { enabled: boolean; title: string } | null }>(
+      "/store/frisbii/config",
+      { method: "GET", cache: "no-store" }
+    )
+    .then((data) => {
+      if (!data?.config) {
+        return { enabled: false, title: "" }
+      }
+      return data.config
+    })
+    .catch(() => null)
+}
+```
+
+> Use `sdk.client.fetch` — not native `fetch`. The store route needs `x-publishable-api-key`
+> which the SDK adds automatically. Use `cache: "no-store"` so changes are always live.
+
+#### 8b. Update `CheckoutForm` — `src/modules/checkout/templates/checkout-form/index.tsx`
+
+```tsx
+import { getFrisbiiPublicConfig, listCartPaymentMethods } from "@lib/data/payment"
+
+export default async function CheckoutForm({ cart, customer }) {
+  let paymentMethods = await listCartPaymentMethods(cart.region?.id ?? "")
+  const frisbiiConfig = await getFrisbiiPublicConfig()
+
+  if (frisbiiConfig?.enabled === false) {
+    paymentMethods = paymentMethods?.filter(
+      (m) => !m.id.startsWith("pp_frisbii")
+    ) ?? []
+  }
+
+  return (
+    // ... existing JSX
+    <Payment
+      cart={cart}
+      availablePaymentMethods={paymentMethods}
+      frisbiiTitle={frisbiiConfig?.title}
+    />
+  )
+}
+```
+
+#### 8c. Update `Payment` component — `src/modules/checkout/components/payment/index.tsx`
+
+```tsx
+const Payment = ({
+  cart,
+  availablePaymentMethods,
+  frisbiiTitle,
+}: {
+  cart: any
+  availablePaymentMethods: any[]
+  frisbiiTitle?: string
+}) => {
+  const effectivePaymentInfoMap = frisbiiTitle
+    ? {
+        ...paymentInfoMap,
+        "pp_frisbii-payment_frisbii-payment": {
+          ...paymentInfoMap["pp_frisbii-payment_frisbii-payment"],
+          title: frisbiiTitle,
+        },
+      }
+    : paymentInfoMap
+
+  // Replace all paymentInfoMap usages in this component with effectivePaymentInfoMap
+}
+```
+
+Restart the storefront after these changes to pick up the server component updates.
+
+---
+
 ## Common Issues
 
 ### Issue: Frisbii doesn't appear in payment methods
 
-**Cause**: Provider not assigned to region
+**Cause**: Provider not assigned to region, or Enabled = OFF in admin settings
 
 **Solution**:
-1. Go to Medusa Admin → Regions
-2. Select your region
-3. Add "Frisbii Payment" to payment providers
+1. Go to Medusa Admin → Regions → select region → add "Frisbii Payment" to payment providers
+2. Go to Medusa Admin → Settings → Frisbii Pay → set **Enabled = ON** and save
 
 ---
 

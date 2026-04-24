@@ -12,7 +12,8 @@ Frontend components for [Frisbii Payment (Reepay)](https://reepay.com/) integrat
 ✅ **React Hooks** - Easy integration with React hooks  
 ✅ **Dynamic SDK Loading** - Reepay SDK loaded only when needed  
 ✅ **Customizable** - Bring your own UI components  
-✅ **Next.js Compatible** - Works with App Router and Server Components
+✅ **Next.js Compatible** - Works with App Router and Server Components  
+✅ **Admin Display Settings** - Enable/disable and rename Frisbii Pay from the Medusa Admin panel without touching code
 
 ## Prerequisites
 
@@ -293,6 +294,46 @@ export async function completeOrder(
   }
 }
 ```
+
+### 6. Enable Admin Payment Display Settings
+
+Three small storefront changes allow merchants to control Frisbii visibility and title from the Admin panel (**Settings → Frisbii Pay**) without code changes.
+
+**`src/lib/data/payment.ts`** — add:
+```ts
+import sdk from "@lib/config"
+
+export const getFrisbiiPublicConfig = async (): Promise<{
+  enabled: boolean
+  title: string
+} | null> => {
+  return sdk.client
+    .fetch<{ config: { enabled: boolean; title: string } | null }>(
+      "/store/frisbii/config",
+      { method: "GET", cache: "no-store" }
+    )
+    .then((data) => (!data?.config ? { enabled: false, title: "" } : data.config))
+    .catch(() => null)
+}
+```
+
+**`CheckoutForm` (Server Component)** — fetch config and filter:
+```tsx
+const frisbiiConfig = await getFrisbiiPublicConfig()
+if (frisbiiConfig?.enabled === false) {
+  paymentMethods = paymentMethods?.filter((m) => !m.id.startsWith("pp_frisbii")) ?? []
+}
+// pass frisbiiTitle={frisbiiConfig?.title} to <Payment>
+```
+
+**`Payment` component** — use dynamic title:
+```tsx
+const effectivePaymentInfoMap = frisbiiTitle
+  ? { ...paymentInfoMap, "pp_frisbii-payment_frisbii-payment": { ...paymentInfoMap["pp_frisbii-payment_frisbii-payment"], title: frisbiiTitle } }
+  : paymentInfoMap
+```
+
+> See [INSTALLATION.md — Step 9](./docs/INSTALLATION.md#9-enable-admin-payment-display-settings-recommended) for the full guide.
 
 That's it! 🎉
 

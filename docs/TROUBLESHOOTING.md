@@ -54,7 +54,13 @@ npm install react@19.0.4 react-dom@19.0.4
 
 **Causes & Solutions**:
 
-#### 1. Provider Not Assigned to Region
+#### 0. Frisbii Disabled in Admin Settings
+
+**Check**: Medusa Admin → Settings → Frisbii Pay → Enabled toggle
+
+**Solution**: Turn **Enabled** ON and save. If the storefront integration for display settings is not set up yet, see [INSTALLATION.md – Step 9](./INSTALLATION.md#9-enable-admin-payment-display-settings-recommended).
+
+---
 
 **Check**: Medusa Admin → Regions → Payment Providers
 
@@ -356,6 +362,82 @@ tail -f logs/medusa.log | grep -i error
 ```
 
 **Solution**: Check backend payment provider configuration
+
+---
+
+### Issue: Frisbii Still Visible After Setting Enabled = OFF in Admin
+
+**Symptoms**:
+- Admin → Settings → Frisbii Pay → Enabled is OFF and saved (shows a success toast)
+- Frisbii Pay still appears as a payment option in the storefront checkout
+
+**Root Cause**: The storefront is not calling `getFrisbiiPublicConfig()` to check the setting, or one of the three required code changes is missing.
+
+**Checklist**:
+
+1. **`getFrisbiiPublicConfig()` uses `sdk.client.fetch`, not native `fetch`**
+
+   Native `fetch` does not include the `x-publishable-api-key` header. The backend returns a `401` which is swallowed by `.catch(() => null)`, so the function returns `null` instead of `{enabled: false}`, and Frisbii is never filtered out.
+
+   ```ts
+   // ✅ Correct
+   sdk.client.fetch("/store/frisbii/config", { method: "GET", cache: "no-store" })
+
+   // ❌ Wrong — will return 401 silently
+   fetch(`${BACKEND_URL}/store/frisbii/config`)
+   ```
+
+2. **Filter uses `=== false`, not `!config?.enabled`**
+
+   When `getFrisbiiPublicConfig()` returns `null` (e.g. on error), `null?.enabled` is `undefined`, and `!undefined` is `true` — this would incorrectly hide Frisbii on every network error.
+
+   ```tsx
+   // ✅ Correct — only filter when explicitly disabled
+   if (frisbiiConfig?.enabled === false) { ... }
+
+   // ❌ Wrong — also hides Frisbii on network errors
+   if (!frisbiiConfig?.enabled) { ... }
+   ```
+
+3. **`CheckoutForm` was updated and storefront was restarted**
+
+   The `CheckoutForm` is a Server Component. Changes to it require a server restart to take effect. If using `next dev`, the server hot-reloads; for production builds run `npm run build` and restart.
+
+---
+
+### Issue: Custom Title Set in Admin Not Shown in Checkout
+
+**Symptoms**:
+- Admin → Settings → Frisbii Pay → Title is updated and saved
+- Checkout still shows "Frisbii Pay" (the default)
+
+**Causes & Solutions**:
+
+#### 1. `frisbiiTitle` prop not passed to `Payment` component
+
+Confirm `CheckoutForm` passes `frisbiiTitle={frisbiiConfig?.title}` to `<Payment>`.
+
+#### 2. `Payment` component still uses hardcoded `paymentInfoMap`
+
+Confirm `Payment` creates `effectivePaymentInfoMap` and uses it everywhere:
+
+```tsx
+const effectivePaymentInfoMap = frisbiiTitle
+  ? {
+      ...paymentInfoMap,
+      "pp_frisbii-payment_frisbii-payment": {
+        ...paymentInfoMap["pp_frisbii-payment_frisbii-payment"],
+        title: frisbiiTitle,
+      },
+    }
+  : paymentInfoMap
+```
+
+Search for every reference to `paymentInfoMap` inside the `Payment` component and replace with `effectivePaymentInfoMap`.
+
+#### 3. Empty string title falls back to default
+
+`getFrisbiiPublicConfig()` returns `{ enabled: false, title: "" }` when config is null. If the admin saved an empty title, `frisbiiTitle` will be `""` (falsy), and `effectivePaymentInfoMap` will fall back to the default. This is correct behaviour — set a non-empty title in the Admin panel.
 
 ---
 
