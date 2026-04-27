@@ -10,6 +10,7 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   external: ["react", "react-dom"],
+  exclude: ["examples", "debug", "docs"],
   async onSuccess() {
     // Add "use client" directive to built files
     const fs = await import("fs/promises")
