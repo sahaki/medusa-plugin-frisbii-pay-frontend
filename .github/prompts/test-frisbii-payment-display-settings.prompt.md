@@ -1,5 +1,5 @@
 ---
-description: "ทดสอบการตั้งค่า Payment Display (Enabled, Title) ใน Admin Settings และตรวจสอบผลลัพธ์ที่หน้า Checkout"
+description: "Test Payment Display settings (Enabled, Title) in Admin Settings and verify results on the Checkout page"
 name: "Test Frisbii Pay — Payment Display Settings"
 agent: "agent"
 tools:
@@ -15,22 +15,22 @@ tools:
 
 # Test: Frisbii Pay — Payment Display Settings
 
-ทดสอบว่าการตั้งค่า **Enabled** และ **Title** ใน Admin Settings ส่งผลต่อหน้า Checkout ได้ถูกต้อง
+Verifies that the **Enabled** and **Title** settings in Admin Settings correctly affect the Checkout page.
 
-**ข้อกำหนดก่อนทดสอบ**:
-- Medusa Backend รันที่ `http://localhost:9000`
-- Medusa Storefront รันที่ `http://localhost:8000`
-- Plugin Frisbii Pay ถูก configure และ assign ให้ region Denmark แล้ว
+**Prerequisites**:
+- Medusa Backend running at `http://localhost:9000`
+- Medusa Storefront running at `http://localhost:8000`
+- Frisbii Pay plugin configured and assigned to the Denmark region
 
 ---
 
-## หลักการสำคัญ (อ่านก่อนเริ่ม)
+## Key Principles (Read Before Starting)
 
-**ใช้ `mcp_microsoft_pla_browser_run_code` เป็นหลัก** — tool นี้รัน Playwright code โดยตรงทำให้เร็วกว่าการ snapshot + click ทีละขั้น รวมหลาย action ไว้ใน call เดียวได้
+**Use `mcp_microsoft_pla_browser_run_code` as the primary tool** — it runs Playwright code directly, which is faster than snapshot + click step by step; multiple actions can be combined in a single call.
 
-**อย่าเรียก snapshot โดยไม่จำเป็น** — snapshot เฉพาะเมื่อต้องการ debug หรือหา ref เท่านั้น
+**Do not call snapshot unnecessarily** — only snapshot when debugging or when a ref is needed.
 
-**ลำดับ form fields** ของ storefront นี้:
+**Form field order** for this storefront:
 - `input[placeholder=" "]` nth(0) = first_name
 - `input[placeholder=" "]` nth(1) = last_name  
 - `input[placeholder=" "]` nth(2) = address_1
@@ -41,9 +41,9 @@ tools:
 
 ---
 
-## AC1 — Enabled = false → Frisbii Pay ไม่ควรแสดงใน Checkout
+## AC1 — Enabled = false → Frisbii Pay should not appear in Checkout
 
-### AC1-Step 1 — Login Admin
+### AC1-Step 1 — Log in to Admin
 
 ```js
 // run_code:
@@ -58,11 +58,11 @@ async (page) => {
 }
 ```
 
-> ตรวจสอบ URL ว่า redirect เข้า `/app/` หรือ `/app/dashboard` ได้ — ถ้าไม่ใช่ → snapshot และรายงาน
+> Verify that the URL redirects to `/app/` or `/app/dashboard` — if not → snapshot and report
 
 ---
 
-### AC1-Step 2 — ตั้งค่า Enabled = false
+### AC1-Step 2 — Set Enabled = false
 
 ```js
 // run_code:
@@ -70,17 +70,17 @@ async (page) => {
   await page.goto('http://localhost:9000/app/settings/frisbii')
   await page.waitForTimeout(2000)
 
-  // ตรวจสอบว่าอยู่ในหน้า settings ถูกต้อง
+  // Verify we are on the correct settings page
   const heading = await page.locator('h1, h2').filter({ hasText: /frisbii/i }).first().textContent().catch(() => '')
   if (!heading) return 'ERROR: Frisbii settings page not found'
 
-  // หา Switch สำหรับ Enabled
-  // Switch มักอยู่ถัดจาก Label "Enabled"
+  // Find the Enabled switch
+  // The switch is typically adjacent to the "Enabled" label
   const enabledLabel = page.locator('label, span').filter({ hasText: /^Enabled$/i }).first()
   const enabledLabelVisible = await enabledLabel.isVisible().catch(() => false)
   if (!enabledLabelVisible) return 'ERROR: Enabled label not found'
 
-  // ตรวจสอบ state ปัจจุบันของ Switch — ถ้า checked ให้ click เพื่อ disable
+  // Check current switch state — if checked, click to disable
   const switchBtn = page.locator('button[role="switch"]').first()
   const isChecked = await switchBtn.getAttribute('data-state').catch(() => 'unknown')
   if (isChecked === 'checked') {
@@ -88,7 +88,7 @@ async (page) => {
     await page.waitForTimeout(500)
   }
 
-  // ตรวจสอบว่า switch เป็น unchecked แล้ว
+  // Verify the switch is now unchecked
   const newState = await switchBtn.getAttribute('data-state').catch(() => 'unknown')
   if (newState !== 'unchecked') return `ERROR: Switch state is still "${newState}", expected "unchecked"`
 
@@ -96,17 +96,17 @@ async (page) => {
   await page.getByRole('button', { name: /Save/i }).click()
   await page.waitForTimeout(2000)
 
-  // ตรวจสอบ toast success
+  // Verify success toast
   const toast = await page.locator('[data-sonner-toast], [role="status"]').first().textContent().catch(() => '')
   return JSON.stringify({ switchNewState: newState, toast })
 }
 ```
 
-> ตรวจสอบว่า toast แสดง success และ switch เป็น `unchecked`
+> Verify that the toast shows success and the switch is `unchecked`
 
 ---
 
-### AC1-Step 3 — เพิ่มสินค้าลงตะกร้า
+### AC1-Step 3 — Add a product to cart
 
 ```js
 // run_code:
@@ -126,7 +126,7 @@ async (page) => {
 
 ---
 
-### AC1-Step 4 — กรอก Address
+### AC1-Step 4 — Fill in the Address
 
 ```js
 // run_code:
@@ -149,7 +149,7 @@ async (page) => {
 
 ---
 
-### AC1-Step 5 — เลือก Shipping
+### AC1-Step 5 — Select Shipping
 
 ```js
 // run_code:
@@ -164,7 +164,7 @@ async (page) => {
 
 ---
 
-### AC1-Step 6 — ตรวจสอบว่า Frisbii Pay ไม่แสดง ✅
+### AC1-Step 6 — Verify Frisbii Pay is not shown ✅
 
 ```js
 // run_code:
@@ -172,7 +172,7 @@ async (page) => {
   await page.waitForTimeout(1000)
   const bodyText = await page.locator('body').textContent()
 
-  // ตรวจว่า Frisbii Pay ไม่มีในรายการ
+  // Verify Frisbii Pay is not in the list
   const frisbiiRadio = page.getByRole('radio', { name: /frisbii/i })
   const frisbiiCount = await frisbiiRadio.count()
 
@@ -186,14 +186,14 @@ async (page) => {
 }
 ```
 
-> **Expected**: `frisbiiRadioCount === 0` และ `result = "PASS"`  
-> Take screenshot เพื่อยืนยันสภาพหน้า Payment
+> **Expected**: `frisbiiRadioCount === 0` and `result = "PASS"`  
+> Take a screenshot to confirm the Payment page state
 
 ---
 
-## AC2 — Enabled = true → Frisbii Pay ควรกลับมาแสดง
+## AC2 — Enabled = true → Frisbii Pay should appear again
 
-### AC2-Step 1 — กลับตั้งค่า Enabled = true
+### AC2-Step 1 — Re-enable Enabled = true
 
 ```js
 // run_code:
@@ -219,11 +219,11 @@ async (page) => {
 }
 ```
 
-> ตรวจสอบว่า switch เป็น `checked` และ toast แสดง success
+> Verify that the switch is `checked` and the toast shows success
 
 ---
 
-### AC2-Step 2 — Refresh หน้า Checkout Payment และตรวจสอบ Frisbii Pay ✅
+### AC2-Step 2 — Refresh the Checkout Payment page and verify Frisbii Pay ✅
 
 ```js
 // run_code:
@@ -235,7 +235,7 @@ async (page) => {
   const frisbiiRadio = page.getByRole('radio', { name: /frisbii/i })
   const frisbiiCount = await frisbiiRadio.count()
 
-  // ตรวจ label text
+  // Check label text
   const frisbiiLabel = frisbiiCount > 0
     ? await frisbiiRadio.first().locator('..').textContent().catch(() => '')
     : ''
@@ -248,14 +248,14 @@ async (page) => {
 }
 ```
 
-> **Expected**: `frisbiiRadioCount >= 1` และ `result = "PASS"`  
-> Take screenshot เพื่อยืนยัน
+> **Expected**: `frisbiiRadioCount >= 1` and `result = "PASS"`  
+> Take a screenshot to confirm
 
 ---
 
-## AC3 — Title = "Frisbii Payment" → แสดงชื่อที่อัปเดตใน Checkout
+## AC3 — Title = "Frisbii Payment" → Updated title shown in Checkout
 
-### AC3-Step 1 — ตั้งค่า Title = "Frisbii Payment"
+### AC3-Step 1 — Set Title = "Frisbii Payment"
 
 ```js
 // run_code:
@@ -263,15 +263,15 @@ async (page) => {
   await page.goto('http://localhost:9000/app/settings/frisbii')
   await page.waitForTimeout(2000)
 
-  // หา input ของ Title (ถัดจาก Label "Title")
+  // Find the Title input (next to the "Title" label)
   const titleLabel = page.locator('label, span').filter({ hasText: /^Title$/i }).first()
   const titleLabelVisible = await titleLabel.isVisible().catch(() => false)
   if (!titleLabelVisible) return 'ERROR: Title label not found'
 
-  // Input ถัดจาก label "Title"
+  // Input adjacent to the "Title" label
   const titleInput = page.locator('input[type="text"]').filter({ hasNot: page.locator('[type="password"]') }).nth(0)
 
-  // ล้างค่าเดิมและกรอกค่าใหม่
+  // Clear the existing value and fill in the new one
   await titleInput.clear()
   await titleInput.fill('Frisbii Payment')
   await page.waitForTimeout(500)
@@ -287,11 +287,11 @@ async (page) => {
 }
 ```
 
-> ตรวจสอบว่า toast แสดง success
+> Verify that the toast shows success
 
 ---
 
-### AC3-Step 2 — Refresh หน้า Checkout Payment และตรวจสอบ Title ✅
+### AC3-Step 2 — Refresh the Checkout Payment page and verify the Title ✅
 
 ```js
 // run_code:
@@ -299,11 +299,11 @@ async (page) => {
   await page.goto('http://localhost:8000/dk/checkout?step=payment')
   await page.waitForTimeout(2000)
 
-  // ตรวจหาชื่อ "Frisbii Payment" ในรายการ payment methods
+  // Look for "Frisbii Payment" in the payment methods list
   const paymentMethodLabel = page.getByRole('radio', { name: /Frisbii Payment/i })
   const exactMatchCount = await paymentMethodLabel.count()
 
-  // ตรวจว่าชื่อเก่า "Frisbii Pay" หายไปแล้ว
+  // Verify the old name "Frisbii Pay" is no longer present
   const oldLabel = page.getByRole('radio', { name: /^Frisbii Pay$/i })
   const oldLabelCount = await oldLabel.count()
 
@@ -321,14 +321,14 @@ async (page) => {
 }
 ```
 
-> **Expected**: `hasNewTitle = true` และ `result = "PASS"`  
-> Take screenshot เพื่อยืนยัน
+> **Expected**: `hasNewTitle = true` and `result = "PASS"`  
+> Take a screenshot to confirm
 
 ---
 
-## การรายงานผล
+## Reporting Results
 
-### ✅ กรณีทุก AC ผ่าน
+### ✅ All ACs passed
 
 ```
 PASS — Frisbii Pay Payment Display Settings
@@ -338,7 +338,7 @@ AC2 (Enabled=true):  Frisbii Pay visible in checkout ✅
 AC3 (Title update):  Title shows "Frisbii Payment" ✅
 ```
 
-### ❌ กรณีมี AC ล้มเหลว
+### ❌ One or more ACs failed
 
 ```
 FAIL — Frisbii Pay Payment Display Settings
@@ -351,11 +351,11 @@ Expected: <expected behaviour>
 Actual: <actual behaviour>
 ```
 
-พร้อม screenshot ของหน้าที่เกิด error
+Include a screenshot of the page where the error occurred
 
 ---
 
-## ข้อมูลอ้างอิง
+## Reference
 
 - **Storefront**: `http://localhost:8000`
 - **Backend Admin**: `http://localhost:9000/app`

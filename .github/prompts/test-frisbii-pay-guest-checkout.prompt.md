@@ -1,7 +1,7 @@
 ---
-description: "ทดสอบกระบวนการจ่ายเงินแบบ Guest ด้วย Frisbii Pay (Reepay) ครบ flow ตั้งแต่เลือกสินค้าจนถึง Thank You page"
+description: "Test the full Guest Checkout flow with Frisbii Pay (Reepay) from product selection through to the Thank You page"
 name: "Test Frisbii Pay — Guest Checkout"
-argument-hint: "ระบุ display mode ที่ต้องการทดสอบ: overlay | embedded | redirect (default: overlay)"
+argument-hint: "Specify the display mode to test: overlay | embedded | redirect (default: overlay)"
 agent: "agent"
 tools:
   - mcp_microsoft_pla_browser_navigate
@@ -14,37 +14,37 @@ tools:
 
 # Test: Frisbii Pay — Guest Checkout (End-to-End)
 
-ทดสอบกระบวนการจ่ายเงินแบบ Guest ด้วย Frisbii Pay (Reepay) ให้ครบทุก step
+Tests the Guest checkout flow with Frisbii Pay (Reepay) covering every step.
 
-**ข้อกำหนดก่อนทดสอบ**:
-- Medusa Backend รันที่ `http://localhost:9000`
-- Medusa Storefront รันที่ `http://localhost:8000`
-- Plugin Frisbii Pay ถูก configure และ assign ให้ region Denmark แล้ว
+**Prerequisites**:
+- Medusa Backend running at `http://localhost:9000`
+- Medusa Storefront running at `http://localhost:8000`
+- Frisbii Pay plugin configured and assigned to the Denmark region
 
 ---
 
-## หลักการสำคัญ (อ่านก่อนเริ่ม)
+## Key Principles (Read Before Starting)
 
-**ใช้ `mcp_microsoft_pla_browser_run_code` เป็นหลัก** — tool นี้รัน Playwright code โดยตรงทำให้เร็วกว่าการ snapshot + click ทีละขั้น รวมหลาย action ไว้ใน call เดียวได้
+**Use `mcp_microsoft_pla_browser_run_code` as the primary tool** — this tool runs Playwright code directly, making it faster than snapshot + click step by step; multiple actions can be combined in a single call.
 
-**อย่าเรียก snapshot โดยไม่จำเป็น** — snapshot เฉพาะเมื่อต้องการ debug หรือหา ref เท่านั้น
+**Do not call snapshot unnecessarily** — only snapshot when debugging or when a ref is needed.
 
-**ลำดับ form fields** ของ storefront นี้ (ตรวจสอบแล้วจากการทดสอบจริง):
+**Form field order** for this storefront (verified from actual testing):
 - `input[placeholder=" "]` nth(0) = first_name
 - `input[placeholder=" "]` nth(1) = last_name  
 - `input[placeholder=" "]` nth(2) = address_1
-- `input[placeholder=" "]` nth(3) = company (ข้ามได้)
+- `input[placeholder=" "]` nth(3) = company (can be skipped)
 - `input[placeholder=" "]` nth(4) = postal_code
 - `input[placeholder=" "]` nth(5) = city
 - `select[name="shipping_address.country_code"]` = country
 - `input[placeholder=" "]` nth(7) = email
 
-**Reepay card form fields** (ตรวจสอบแล้ว):
+**Reepay card form fields** (verified):
 - `input.form-control.rp-content-card-input` nth(0) = card number
 - `input.form-control.rp-content-card-input` nth(1) = expiry (MM/YY format)
 - `input.form-control.rp-content-card-input` nth(2) = CVV
 
-**testid ที่ใช้ได้**:
+**Available testids**:
 - `add-product-button` = Add to Cart
 - `submit-address-button` = Continue to delivery
 - `submit-delivery-option-button` = Continue to payment
@@ -53,14 +53,14 @@ tools:
 
 ---
 
-## Step 1 — เพิ่มสินค้าลงตะกร้า (รวม 1 call)
+## Step 1 — Add product to cart (1 call)
 
 ```js
 // run_code:
 async (page) => {
   await page.goto('http://localhost:8000/dk/products/shorts')
   await page.waitForTimeout(1500)
-  // เลือก Size L (หรือ Size แรกที่ enable)
+  // Select Size L (or the first enabled size)
   const sizeButtons = page.locator('button:not([disabled])').filter({ hasText: /^[LMSXL]+$/ })
   const count = await sizeButtons.count()
   if (count === 0) return 'ERROR: no size available'
@@ -68,17 +68,17 @@ async (page) => {
   await page.waitForTimeout(500)
   await page.getByTestId('add-product-button').click()
   await page.waitForTimeout(2000)
-  // ตรวจสอบ cart counter
+  // Check cart counter
   const cartText = await page.locator('button[data-testid], a[href*="/cart"]').first().textContent().catch(() => '')
   return `added to cart. cart text: ${cartText}`
 }
 ```
 
-> หาก return มี "ERROR" → screenshot และรายงาน
+> If return contains "ERROR" → screenshot and report
 
 ---
 
-## Step 2 — ไป Checkout และกรอกข้อมูล Address (รวม 1 call)
+## Step 2 — Go to Checkout and fill in Address details (1 call)
 
 ```js
 // run_code:
@@ -101,7 +101,7 @@ async (page) => {
 
 ---
 
-## Step 3 — เลือก Shipping และ Payment (รวม 2 call)
+## Step 3 — Select Shipping and Payment (2 calls)
 
 ```js
 // run_code (delivery):
@@ -129,7 +129,7 @@ async (page) => {
 
 ---
 
-## Step 4 — Place Order → Reepay → 3DS → รอผล
+## Step 4 — Place Order → Reepay → 3DS → Wait for result
 
 ### 4.1 Place order
 
@@ -137,19 +137,19 @@ async (page) => {
 // run_code:
 async (page) => {
   await page.getByTestId('submit-order-button').click()
-  // รอให้ browser redirect ไป Reepay (อาจใช้เวลา 5-10 วินาที)
+  // Wait for browser to redirect to Reepay (may take 5-10 seconds)
   try {
     await page.waitForURL('**/checkout.reepay.com/**', { timeout: 15000 })
   } catch {
-    // อาจยังอยู่ที่หน้าเดิม เช็ค URL
+    // May still be on the same page, check URL
   }
   return page.url()
 }
 ```
 
-> ตรวจสอบ URL ว่าขึ้นต้นด้วย `https://checkout.reepay.com/#/cs_` — ถ้าไม่ใช่ → snapshot และรายงาน
+> Verify that the URL starts with `https://checkout.reepay.com/#/cs_` — if not → snapshot and report
 
-### 4.2 กรอกบัตรและจ่ายเงิน
+### 4.2 Fill in card details and pay
 
 ```js
 // run_code:
@@ -161,7 +161,7 @@ async (page) => {
   await formInputs.nth(2).fill('123')
   await page.waitForTimeout(500)
   await page.getByRole('button', { name: /Pay EUR/ }).click()
-  // รอ 3DS iframe ปรากฏ
+  // Wait for 3DS iframe to appear
   await page.waitForTimeout(3000)
   return 'payment submitted, waiting for 3DS'
 }
@@ -172,16 +172,16 @@ async (page) => {
 ```js
 // run_code:
 async (page) => {
-  // Pass challenge ใน 3DS iframe
+  // Pass challenge in the 3DS iframe
   const frame = page.frameLocator('iframe[name="threedV2ChallengeFrame"]')
   await frame.getByRole('button', { name: 'Pass challenge' }).click({ timeout: 10000 })
   return '3DS passed'
 }
 ```
 
-### 4.4 รอผลลัพธ์ (สำคัญมาก)
+### 4.4 Wait for result (critical)
 
-**รอ 20 วินาที** — backend มี retry logic ที่ใช้เวลา ~11 วินาทีในกรณีแย่ที่สุด จากนั้นตรวจ URL:
+**Wait 20 seconds** — the backend has retry logic that can take up to ~11 seconds in the worst case. Then check the URL:
 
 ```js
 // run_code:
@@ -191,12 +191,12 @@ async (page) => {
 }
 ```
 
-> - URL มี `/order/order_` → **PASS** → ไปยัง Step 5
-> - URL ยังเป็น `checkout.reepay.com` หรือ `checkout?step=review` → FAIL → snapshot + รายงาน
+> - URL contains `/order/order_` → **PASS** → go to Step 5
+> - URL is still `checkout.reepay.com` or `checkout?step=review` → FAIL → snapshot + report
 
 ---
 
-## Step 5 — ตรวจสอบ Thank You Page
+## Step 5 — Verify the Thank You Page
 
 ```js
 // run_code:
@@ -209,7 +209,7 @@ async (page) => {
 }
 ```
 
-จากนั้น **ตรวจสอบ cart ว่างเปล่า**:
+Then **verify the cart is empty**:
 
 ```js
 // run_code:
@@ -224,9 +224,9 @@ async (page) => {
 
 ---
 
-## การรายงานผล
+## Reporting Results
 
-### ✅ กรณีสำเร็จ
+### ✅ Success
 
 ```
 PASS — Frisbii Pay Guest Checkout
@@ -237,7 +237,7 @@ Cart cleared: ✅
 Console errors: none
 ```
 
-### ❌ กรณีล้มเหลว
+### ❌ Failure
 
 ```
 FAIL — Frisbii Pay Guest Checkout
@@ -247,16 +247,16 @@ Error: <error message>
 Current URL: <url>
 ```
 
-พร้อม screenshot ของหน้าที่เกิด error
+Include a screenshot of the page where the error occurred
 
 ---
 
-## ข้อมูลอ้างอิง
+## Reference
 
 - **Storefront**: `http://localhost:8000`
 - **Backend Admin**: `http://localhost:9000/app`
 - **Reepay Test Card**: `4111 1111 1111 1111` / `12/97` / `123` (Visa)
 - **Provider ID**: `pp_frisbii-payment_frisbii-payment`
 - **Accept URL pattern**: `/{countryCode}/checkout/frisbii/accept?cart_id={cart_id}`
-- **Accept page**: จะเรียก `completeOrder()` ซึ่งมี retry 4 ครั้ง (1.5s/2.5s/4s delays)
-- **authorizePayment**: มี retry 5 ครั้ง (1s/2s/3s/5s delays) — รวมเวลาสูงสุด ~11 วินาที
+- **Accept page**: will call `completeOrder()` which has 4 retries (1.5s/2.5s/4s delays)
+- **authorizePayment**: has 5 retries (1s/2s/3s/5s delays) — maximum total time ~11 seconds

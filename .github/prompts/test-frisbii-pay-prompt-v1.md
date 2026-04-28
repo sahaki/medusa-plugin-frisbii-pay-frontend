@@ -1,8 +1,8 @@
-ดำเนินการ Test ตามกระบวนการเอกสาร D:\my_cource\medusa\001\medusa-plugin-frisbii-pay-frontend\.github\prompts\test-frisbii-pay-guest-checkout.prompt.md ผ่าน playwrite ซึ่งไฟล์ดังกล่าวถูกสร้างเพื่อการตรวจสอบกระบวนการ checkout ของ plugin D:\my_cource\medusa\001\medusa-plugin-frisbii-pay-frontend
+Run the Test following the procedure in document D:\my_cource\medusa\001\medusa-plugin-frisbii-pay-frontend\.github\prompts\test-frisbii-pay-guest-checkout.prompt.md via Playwright. This file was created to verify the checkout process of plugin D:\my_cource\medusa\001\medusa-plugin-frisbii-pay-frontend
 
-เป้าหมายคือ ทดสอบการ checkout ได้สำเร็จและ user ไปยังหน้า thank you page และระบบ ทำการ clear cart items ได้อย่างถูกต้อง
+The goal is to test that checkout completes successfully, the user is redirected to the Thank You page, and the system correctly clears cart items.
 
-ในกรณีที่กระบวนการทำงานของ plugin มีปัญหา ให้ดำเนินตรวจสอบการทำงานของโค้ดอ้างอิง folder ด้านล่าง และสร้างเอกสารสรุปปัญหาที่เจอ
+If the plugin workflow has issues, investigate the code in the reference folders below and create a summary document of problems found:
 D:\my_cource\medusa\002\medusa-store
 D:\my_cource\medusa\002\medusa-store-storefront
 D:\my_cource\medusa\001\medusa-plugin-frisbii-pay
@@ -10,17 +10,17 @@ D:\my_cource\medusa\001\medusa-plugin-frisbii-pay-frontend
 
 ---------------
 
-ข้อมูลอ้างอิง 1
-เมื่อฉัน checkout ด้วย Payment "Manual Payment" (pp_system_default) ซึ่งเป็น payment default ของ MadusaJS ผลลัพธ์คือ เมื่อ place order. Website ทำการสร้าง order และ redirect ไปยัง Thank you page ได้อย่างถูกต้อง และ cart items ถูก clear ได้อย่างถูกต้อง
-ตัวอย่าง Thank you page: http://localhost:8000/dk/order/order_01KPPY5X35TXEE9D3QH5SAJN06/confirmed
+Reference 1
+When I checkout using "Manual Payment" (pp_system_default), which is MedusaJS's default payment, the result is: upon placing the order, the website creates the order and correctly redirects to the Thank You page, and cart items are correctly cleared.
+Example Thank You page: http://localhost:8000/dk/order/order_01KPPY5X35TXEE9D3QH5SAJN06/confirmed
 
-อย่างไรก็ตามฉันอยากให้การทำงานดังกล่าว ทำงานได้อย่างถูกต้องกับ plugin ของเรา Frisbii pay
+However, I want this same behaviour to work correctly with our plugin Frisbii Pay.
 
-ข้อมูลอ้างอิงที่ 2
-Server สำหรับทดสอบ 
-ฉันรัน server เรียบร้อย ทั้ง 2 ด้วยคำสั่ง npm run dev
+Reference 2
+Test servers
+I have started both servers with the npm run dev command.
 
-ในกรณีที่ต้องการ Restart server อย่าพยายามทำด้วยตนเอง ให้ถามฉันเพื่อดำเนินการในส่วนดังกล่าว
+If a server restart is needed, do not attempt to do it yourself — ask me to handle it.
 
 Backend: http://localhost:9000/app/ 
 D:\my_cource\medusa\002\medusa-store
@@ -31,14 +31,14 @@ Pass: Test#1234
 Frontend: http://localhost:8000/
 D:\my_cource\medusa\002\medusa-store-storefront
 
-ข้อมูลอ้างอิงที่ 3
-plugin ต้นแบบของเราคือ
+Reference 3
+Our reference plugin is:
 \\wsl.localhost\Ubuntu-22.04\home\radaradmin\billwerk_web\wp\wp-content\plugins\reepay-checkout-gateway
-และคุณสามารถศึกษากระบวนการ checkout ของ plugin ต้นแบบได้จากเอกสาร
+You can study the checkout process of the reference plugin from the document:
 \\wsl.localhost\Ubuntu-22.04\home\radaradmin\billwerk_web\wp\wp-content\debug\CHECKOUT_FLOW.md
 
 ---------------
 
-คุณมีสิทธิเข้าถึงทุกไฟล์และ folder ทุกรายการตามข้อมูล folder ที่อ้างอิงด้านบน
+You have access to all files and folders listed in the reference folders above.
 
-หากมีคำถามให้สอบถามก่อนดำเนินการใดๆ
+If you have any questions, ask before taking any action.

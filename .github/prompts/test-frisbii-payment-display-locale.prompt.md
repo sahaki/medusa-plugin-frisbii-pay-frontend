@@ -1,5 +1,5 @@
 ---
-description: "ทดสอบการตั้งค่า Payment Display Locale ใน Admin Settings — ครอบคลุมทั้ง Backend (การบันทึก, persistence, API validator) และ Frontend (UI text ตาม locale)"
+description: "Test the Payment Display Locale setting in Admin Settings — covers Backend (saving, persistence, API validator) and Frontend (UI text based on locale)"
 name: "Test Frisbii Pay — Payment Display Locale"
 agent: "agent"
 tools:
@@ -15,27 +15,27 @@ tools:
 
 # Test: Frisbii Pay — Payment Display Locale
 
-ทดสอบฟีเจอร์ **Payment Display Locale** ครอบคลุม:
-- **Backend**: Dropdown แสดง locale ที่ enabled/disabled ถูกต้อง, บันทึกและคืนค่าได้, API validator ปฏิเสธ locale ที่ไม่รองรับ, Public config endpoint คืน locale ที่บันทึกไว้
-- **Frontend**: UI text ของ FrisbiiPaymentButton เปลี่ยนตาม locale ที่กำหนด
+Tests the **Payment Display Locale** feature covering:
+- **Backend**: Dropdown shows enabled/disabled locales correctly, saves and restores values, API validator rejects unsupported locales, Public config endpoint returns the saved locale
+- **Frontend**: UI text of FrisbiiPaymentButton changes according to the configured locale
 
-**Locale ที่รองรับ**: `en_GB` (English) และ `da_DK` (Danish)  
-**Locale ปิดไว้ (Coming soon)**: sv_SE, nb_NO, de_DE, fr_FR, es_ES, nl_NL, pl_PL
+**Supported locales**: `en_GB` (English) and `da_DK` (Danish)  
+**Disabled locales (Coming soon)**: sv_SE, nb_NO, de_DE, fr_FR, es_ES, nl_NL, pl_PL
 
-**ข้อกำหนดก่อนทดสอบ**:
-- Medusa Backend รันที่ `http://localhost:9000`
-- Medusa Storefront รันที่ `http://localhost:8000`
-- Plugin Frisbii Pay ถูก configure และ assign ให้ region Denmark แล้ว
+**Prerequisites**:
+- Medusa Backend running at `http://localhost:9000`
+- Medusa Storefront running at `http://localhost:8000`
+- Frisbii Pay plugin configured and assigned to the Denmark region
 
 ---
 
-## หลักการสำคัญ (อ่านก่อนเริ่ม)
+## Key Principles (Read Before Starting)
 
-**ใช้ `mcp_microsoft_pla_browser_run_code` เป็นหลัก** — รวมหลาย action ไว้ใน call เดียวเพื่อความเร็ว
+**Use `mcp_microsoft_pla_browser_run_code` as the primary tool** — combine multiple actions in a single call for speed.
 
-**อย่าเรียก snapshot โดยไม่จำเป็น** — snapshot เฉพาะเมื่อต้องการ debug หรือหา ref เท่านั้น
+**Do not call snapshot unnecessarily** — only snapshot when debugging or when a ref is needed.
 
-**ลำดับ form fields** ของ storefront นี้:
+**Form field order** for this storefront:
 - `input[placeholder=" "]` nth(0) = first_name
 - `input[placeholder=" "]` nth(1) = last_name
 - `input[placeholder=" "]` nth(2) = address_1
@@ -46,13 +46,13 @@ tools:
 
 ---
 
-## AC1 — Dropdown แสดง enabled/disabled ถูกต้อง
+## AC1 — Dropdown shows enabled/disabled correctly
 
-ตรวจสอบว่า:
-- `en_GB` และ `da_DK` ปรากฏในรายการและสามารถเลือกได้ (ไม่มี attribute `disabled`)
-- Locale อื่น (sv_SE, nb_NO, de_DE, fr_FR, es_ES, nl_NL, pl_PL) ปรากฏแต่มี `disabled` และมีข้อความ "Coming soon" / "Kommer snart"
+Verify that:
+- `en_GB` and `da_DK` appear in the list and can be selected (no `disabled` attribute)
+- Other locales (sv_SE, nb_NO, de_DE, fr_FR, es_ES, nl_NL, pl_PL) appear but are `disabled` and show the text "Coming soon" / "Kommer snart"
 
-### AC1-Step 1 — Login Admin
+### AC1-Step 1 — Log in to Admin
 
 ```js
 // run_code:
@@ -67,11 +67,11 @@ async (page) => {
 }
 ```
 
-> ตรวจสอบ URL ว่า redirect เข้า `/app/` ได้ — ถ้าไม่ใช่ → snapshot และรายงาน
+> Verify that the URL redirects to `/app/` — if not → snapshot and report
 
 ---
 
-### AC1-Step 2 — เปิด Locale Dropdown และสแกน Items
+### AC1-Step 2 — Open the Locale Dropdown and scan items
 
 ```js
 // run_code:
@@ -79,32 +79,32 @@ async (page) => {
   await page.goto('http://localhost:9000/app/settings/frisbii')
   await page.waitForTimeout(2000)
 
-  // คลิก trigger ของ Locale select (trigger ที่ 3 — หลัง Display Type)
-  // Locale select อยู่ถัดจาก Display Type select ในหน้า Payment Display
+  // Find the Locale select trigger (the third trigger — after Display Type)
+  // Locale select is next to Display Type select on the Payment Display page
   const triggers = page.locator('button[role="combobox"]')
   const triggerCount = await triggers.count()
   if (triggerCount < 2) return `ERROR: Need at least 2 select triggers, found ${triggerCount}`
 
-  // Locale select เป็น trigger ที่ 2 (index 1) ใน Payment Display section
-  // (Display Type คือ index 0)
-  // ลองใช้ label เพื่อระบุตำแหน่ง
+  // Locale select is the second trigger (index 1) in the Payment Display section
+  // (Display Type is index 0)
+  // Try using the label to locate it
   const localeLabel = page.locator('label').filter({ hasText: /^(Sprog|Locale)$/i })
   const localeLabelVisible = await localeLabel.isVisible().catch(() => false)
   if (!localeLabelVisible) return 'ERROR: Locale label not found'
 
-  // หา select trigger ที่อยู่ใกล้ label "Locale" / "Sprog"
+  // Find the select trigger near the "Locale" / "Sprog" label
   const localeSection = localeLabel.locator('..').locator('..')
   const localeTrigger = localeSection.locator('button[role="combobox"]').first()
   const localeTriggerVisible = await localeTrigger.isVisible().catch(() => false)
   if (!localeTriggerVisible) {
-    // Fallback: ใช้ตำแหน่งที่ 2 (0-indexed) ของ trigger ทั้งหมด
+    // Fallback: use the second trigger (0-indexed) from all triggers
     await triggers.nth(1).click()
   } else {
     await localeTrigger.click()
   }
   await page.waitForTimeout(500)
 
-  // อ่าน items ใน dropdown
+  // Read items in the dropdown
   const items = page.locator('[role="option"]')
   const count = await items.count()
   if (count === 0) return 'ERROR: No dropdown items found — dropdown may not have opened'
@@ -118,7 +118,7 @@ async (page) => {
     result.push({ text, isDisabled, hasComingSoon })
   }
 
-  // ปิด dropdown
+  // Close dropdown
   await page.keyboard.press('Escape')
 
   return JSON.stringify(result, null, 2)
@@ -126,17 +126,17 @@ async (page) => {
 ```
 
 > **Expected**:
-> - Items ที่มี `en_GB` text (`English` / `Engelsk`) → `isDisabled` เป็น `false` หรือ null
-> - Items ที่มี `da_DK` text (`Danish` / `Dansk`) → `isDisabled` เป็น `false` หรือ null
-> - Items อื่นทั้งหมด (Swedish, Norwegian, German, French, Spanish, Dutch, Polish) → `isDisabled` ≠ `false` และ `hasComingSoon = true`
+> - Items with `en_GB` text (`English` / `Engelsk`) → `isDisabled` is `false` or null
+> - Items with `da_DK` text (`Danish` / `Dansk`) → `isDisabled` is `false` or null
+> - All other items (Swedish, Norwegian, German, French, Spanish, Dutch, Polish) → `isDisabled` ≠ `false` and `hasComingSoon = true`
 
-Take screenshot หลัง dropdown เปิดเพื่อ document สถานะ UI
+Take a screenshot after the dropdown opens to document the UI state
 
 ---
 
-## AC2 — บันทึก Locale = en_GB แล้ว Reload คงค่าเดิม
+## AC2 — Save Locale = en_GB, then Reload retains the value
 
-### AC2-Step 1 — ตั้งค่า Locale เป็น en_GB แล้ว Save
+### AC2-Step 1 — Set Locale to en_GB and Save
 
 ```js
 // run_code:
@@ -144,23 +144,23 @@ async (page) => {
   await page.goto('http://localhost:9000/app/settings/frisbii')
   await page.waitForTimeout(2000)
 
-  // หา Locale trigger
+  // Find the Locale trigger
   const localeLabel = page.locator('label').filter({ hasText: /^(Sprog|Locale)$/i })
   const localeSection = localeLabel.locator('..').locator('..')
   const localeTrigger = localeSection.locator('button[role="combobox"]').first()
 
-  // เปิด dropdown
+  // Open dropdown
   await localeTrigger.click()
   await page.waitForTimeout(500)
 
-  // คลิก en_GB option (English / Engelsk)
+  // Click en_GB option (English / Engelsk)
   const enOption = page.locator('[role="option"]').filter({ hasText: /English|Engelsk/ }).first()
   const enVisible = await enOption.isVisible().catch(() => false)
   if (!enVisible) return 'ERROR: English (en_GB) option not visible in dropdown'
   await enOption.click()
   await page.waitForTimeout(500)
 
-  // ตรวจสอบค่าที่เลือก
+  // Verify selected value
   const triggerText = await localeTrigger.textContent()
 
   // Save
@@ -172,11 +172,11 @@ async (page) => {
 }
 ```
 
-> ตรวจสอบว่า toast แสดง "Configuration saved" / "Konfiguration gemt"
+> Verify that the toast shows "Configuration saved" / "Konfiguration gemt"
 
 ---
 
-### AC2-Step 2 — Reload หน้า Settings แล้วตรวจ Locale ที่บันทึกไว้ ✅
+### AC2-Step 2 — Reload the Settings page and verify the saved Locale ✅
 
 ```js
 // run_code:
@@ -204,9 +204,9 @@ async (page) => {
 
 ---
 
-## AC3 — บันทึก Locale = da_DK แล้ว Reload คงค่าเดิม
+## AC3 — Save Locale = da_DK, then Reload retains the value
 
-### AC3-Step 1 — ตั้งค่า Locale เป็น da_DK แล้ว Save
+### AC3-Step 1 — Set Locale to da_DK and Save
 
 ```js
 // run_code:
@@ -221,12 +221,12 @@ async (page) => {
   await localeTrigger.click()
   await page.waitForTimeout(500)
 
-  // คลิก da_DK option (Danish / Dansk)
+  // Click da_DK option (Danish / Dansk)
   const daOption = page.locator('[role="option"]').filter({ hasText: /Danish|Dansk/ }).first()
   const daVisible = await daOption.isVisible().catch(() => false)
   if (!daVisible) return 'ERROR: Danish (da_DK) option not visible in dropdown'
 
-  // ตรวจว่า option นี้ไม่ถูก disabled
+  // Verify this option is not disabled
   const daDisabled = await daOption.getAttribute('data-disabled') || await daOption.getAttribute('aria-disabled')
   if (daDisabled && daDisabled !== 'false') return `ERROR: da_DK option is disabled (data-disabled="${daDisabled}")`
 
@@ -245,7 +245,7 @@ async (page) => {
 
 ---
 
-### AC3-Step 2 — Reload หน้า Settings แล้วตรวจ Locale ที่บันทึกไว้ ✅
+### AC3-Step 2 — Reload the Settings page and verify the saved Locale ✅
 
 ```js
 // run_code:
@@ -273,16 +273,16 @@ async (page) => {
 
 ---
 
-## AC4 — Public Config API คืน locale ที่ตรงกับที่บันทึกไว้
+## AC4 — Public Config API returns the locale matching what was saved
 
-ตรวจสอบว่า endpoint `GET /store/frisbii/config` คืนค่า `locale` ที่ตรงกับ Admin Settings
+Verify that the `GET /store/frisbii/config` endpoint returns a `locale` that matches the Admin Settings.
 
-### AC4-Step 1 — ตั้ง locale เป็น en_GB แล้วตรวจ API
+### AC4-Step 1 — Set locale to en_GB then check the API
 
 ```js
 // run_code:
 async (page) => {
-  // ตั้งค่า en_GB ก่อน (ต้องอยู่ใน admin session แล้ว)
+  // Set en_GB first (must already be in admin session)
   await page.goto('http://localhost:9000/app/settings/frisbii')
   await page.waitForTimeout(2000)
 
@@ -298,7 +298,7 @@ async (page) => {
   await page.getByRole('button', { name: /Save Configuration|Gem konfiguration/i }).click()
   await page.waitForTimeout(2000)
 
-  // เรียก public config API
+  // Call the public config API
   const resp = await page.evaluate(async () => {
     const r = await fetch('http://localhost:9000/store/frisbii/config')
     if (!r.ok) return { error: `HTTP ${r.status}` }
@@ -316,11 +316,11 @@ async (page) => {
 }
 ```
 
-> **Expected**: `locale === "en_GB"` และ `result = "PASS"`
+> **Expected**: `locale === "en_GB"` and `result = "PASS"`
 
 ---
 
-### AC4-Step 2 — เปลี่ยน locale เป็น da_DK แล้วตรวจ API ✅
+### AC4-Step 2 — Change locale to da_DK then check the API ✅
 
 ```js
 // run_code:
@@ -356,20 +356,20 @@ async (page) => {
 }
 ```
 
-> **Expected**: `locale === "da_DK"` และ `result = "PASS"`
+> **Expected**: `locale === "da_DK"` and `result = "PASS"`
 
 ---
 
-## AC5 — API Validator ปฏิเสธ Locale ที่ไม่รองรับ
+## AC5 — API Validator rejects unsupported locales
 
-ตรวจสอบว่าการส่ง `locale: "sv_SE"` (locale ที่ปิดไว้) ผ่าน API ตรง ๆ จะถูกปฏิเสธด้วย HTTP 4xx
+Verify that sending `locale: "sv_SE"` (a disabled locale) directly via the API is rejected with HTTP 4xx.
 
-### AC5-Step 1 — POST locale=sv_SE ผ่าน API โดยตรง ✅
+### AC5-Step 1 — POST locale=sv_SE directly via API ✅
 
 ```js
 // run_code:
 async (page) => {
-  // ส่ง POST จาก context ของ admin (มี cookie session)
+  // Send POST from admin context (with session cookie)
   const resp = await page.evaluate(async () => {
     const r = await fetch('http://localhost:9000/admin/frisbii/config', {
       method: 'POST',
@@ -392,12 +392,12 @@ async (page) => {
 }
 ```
 
-> **Expected**: HTTP 400 (bad request) และ `result = "PASS"`  
-> Body มักประกอบด้วย error message จาก Zod validation
+> **Expected**: HTTP 400 (bad request) and `result = "PASS"`  
+> Body typically contains an error message from Zod validation
 
 ---
 
-### AC5-Step 2 — POST locale=pl_PL ยืนยันซ้ำกับ locale อื่นที่ปิดไว้
+### AC5-Step 2 — POST locale=pl_PL to confirm rejection with another disabled locale
 
 ```js
 // run_code:
@@ -423,13 +423,13 @@ async (page) => {
 }
 ```
 
-> **Expected**: HTTP 4xx และ `result = "PASS"`
+> **Expected**: HTTP 4xx and `result = "PASS"`
 
 ---
 
-## AC6 — Frontend Payment Button แสดง Text เป็นภาษาอังกฤษ เมื่อ locale = en_GB
+## AC6 — Frontend Payment Button shows English text when locale = en_GB
 
-### AC6-Step 1 — ตั้ง locale = en_GB ใน Admin
+### AC6-Step 1 — Set locale = en_GB in Admin
 
 ```js
 // run_code:
@@ -456,7 +456,7 @@ async (page) => {
 
 ---
 
-### AC6-Step 2 — เพิ่มสินค้าลงตะกร้า
+### AC6-Step 2 — Add a product to cart
 
 ```js
 // run_code:
@@ -476,7 +476,7 @@ async (page) => {
 
 ---
 
-### AC6-Step 3 — กรอก Address และ Delivery
+### AC6-Step 3 — Fill in Address and Delivery
 
 ```js
 // run_code:
@@ -503,21 +503,21 @@ async (page) => {
 
 ---
 
-### AC6-Step 4 — เลือก Frisbii Pay และตรวจ Button Text ✅
+### AC6-Step 4 — Select Frisbii Pay and verify Button Text ✅
 
 ```js
 // run_code:
 async (page) => {
   await page.waitForTimeout(1500)
 
-  // เลือก Frisbii Pay radio
+  // Find Frisbii Pay radio
   const frisbiiRadio = page.getByRole('radio', { name: /frisbii/i })
   const frisbiiCount = await frisbiiRadio.count()
   if (frisbiiCount === 0) return 'ERROR: Frisbii Pay not found in payment options — check that Enabled=true in Admin'
   await frisbiiRadio.first().click()
   await page.waitForTimeout(500)
 
-  // หา Payment Button (data-testid="submit-payment-button" หรือ button ที่มีข้อความ Place order)
+  // Find the Payment Button (data-testid="submit-payment-button" or button with "Place order" text)
   const submitBtn = page.getByTestId('submit-payment-button')
   const submitBtnExists = await submitBtn.count() > 0
 
@@ -525,7 +525,7 @@ async (page) => {
   if (submitBtnExists) {
     buttonText = (await submitBtn.textContent() || '').trim()
   } else {
-    // Frisbii Payment Button อาจ render แยกต่างหาก
+    // Frisbii Payment Button may render separately
     const frisbiiBtn = page.locator('button').filter({ hasText: /Place order|Afgiv ordre/i })
     buttonText = (await frisbiiBtn.first().textContent().catch(() => '')) || ''
   }
@@ -541,14 +541,14 @@ async (page) => {
 }
 ```
 
-> **Expected**: `buttonText = "Place order"` และ `result = "PASS"`  
-> Take screenshot เพื่อยืนยัน button text
+> **Expected**: `buttonText = "Place order"` and `result = "PASS"`  
+> Take a screenshot to confirm the button text
 
 ---
 
-## AC7 — Frontend Payment Button แสดง Text เป็นภาษาเดนมาร์ก เมื่อ locale = da_DK
+## AC7 — Frontend Payment Button shows Danish text when locale = da_DK
 
-### AC7-Step 1 — เปลี่ยน locale = da_DK ใน Admin แล้ว Save
+### AC7-Step 1 — Change locale = da_DK in Admin and Save
 
 ```js
 // run_code:
@@ -575,14 +575,14 @@ async (page) => {
 
 ---
 
-### AC7-Step 2 — สร้าง Cart ใหม่และไปถึง Payment Step
+### AC7-Step 2 — Create a new cart and navigate to the Payment step
 
-> **หมายเหตุ**: Cart เดิมถูกสร้างในช่วง AC6 แล้ว ต้องสร้าง cart ใหม่เพื่อให้ session data มี locale ใหม่ (da_DK)
+> **Note**: The cart created during AC6 is stale; a new cart must be created so that session data carries the updated locale (da_DK).
 
 ```js
 // run_code:
 async (page) => {
-  // ล้าง cart เดิม: ไปที่ storefront หน้าแรกแล้วสร้าง cart ใหม่
+  // Clear old cart: navigate to storefront home and create a new cart
   await page.goto('http://localhost:8000/dk')
   await page.waitForTimeout(1000)
 
@@ -618,7 +618,7 @@ async (page) => {
 
 ---
 
-### AC7-Step 3 — เลือก Frisbii Pay และตรวจ Button Text ✅
+### AC7-Step 3 — Select Frisbii Pay and verify Button Text ✅
 
 ```js
 // run_code:
@@ -631,7 +631,7 @@ async (page) => {
   await frisbiiRadio.first().click()
   await page.waitForTimeout(500)
 
-  // ตรวจ Payment Button Text
+  // Check Payment Button Text
   const submitBtn = page.getByTestId('submit-payment-button')
   const submitBtnExists = await submitBtn.count() > 0
 
@@ -643,12 +643,12 @@ async (page) => {
     buttonText = (await frisbiiBtn.first().textContent().catch(() => '')) || ''
   }
 
-  // "Afgiv ordre" คือ Danish สำหรับ "Place order"
+  // "Afgiv ordre" is Danish for "Place order"
   const isDanish = buttonText === 'Afgiv ordre'
 
-  // ยืนยัน session data locale
+  // Confirm session data locale
   const sessionLocale = await page.evaluate(() => {
-    // ลองดึงจาก React state หรือ data attributes (ถ้ามี)
+    // Try to retrieve from React state or data attributes (if present)
     const btn = document.querySelector('[data-locale]')
     return btn?.getAttribute('data-locale') || 'not found in DOM'
   })
@@ -663,29 +663,29 @@ async (page) => {
 }
 ```
 
-> **Expected**: `buttonText = "Afgiv ordre"` และ `result = "PASS"`  
-> Take screenshot เพื่อยืนยัน
+> **Expected**: `buttonText = "Afgiv ordre"` and `result = "PASS"`  
+> Take a screenshot to confirm
 
 ---
 
-## AC8 — Locale ถูกส่งต่อใน Session Data (API Integrity Check)
+## AC8 — Locale is passed in Session Data (API Integrity Check)
 
-ตรวจสอบว่า `session.data.locale` ใน cart payment session ตรงกับที่ตั้งไว้ใน Admin
+Verify that `session.data.locale` in the cart payment session matches what was configured in Admin.
 
-### AC8-Step 1 — ดึง Payment Session Data และตรวจ locale field ✅
+### AC8-Step 1 — Retrieve Payment Session Data and verify the locale field ✅
 
-> ทำต่อจาก AC7 (ยังอยู่ที่ checkout payment step กับ locale = da_DK)
+> Continue from AC7 (still on the checkout payment step with locale = da_DK)
 
 ```js
 // run_code:
 async (page) => {
-  // ดึง cart ID จาก cookie หรือ URL
+  // Retrieve cart ID from cookie or URL
   await page.waitForTimeout(1000)
 
   const sessionData = await page.evaluate(async () => {
-    // ลองดึง cart data จาก Next.js fetch หรือ localStorage
-    // วิธีที่ reliable ที่สุดคือ intercept network หรือดึงจาก DOM
-    // ลอง query cart API ถ้ารู้ cart ID
+    // Try to retrieve cart data from Next.js fetch or localStorage
+    // The most reliable method is to intercept the network or retrieve from DOM
+    // Try querying the cart API if the cart ID is known
     const scripts = Array.from(document.querySelectorAll('script[type="application/json"]'))
     for (const script of scripts) {
       try {
@@ -696,7 +696,7 @@ async (page) => {
       } catch {}
     }
 
-    // Fallback: ดูจาก page source
+    // Fallback: check page source
     const bodyText = document.body.innerHTML
     const match = bodyText.match(/"locale"\s*:\s*"([^"]+)"/)
     return match ? { localeFromDOM: match[1] } : { note: 'locale not found in DOM — verify via network tab' }
@@ -706,14 +706,14 @@ async (page) => {
 }
 ```
 
-> **Expected**: `locale` field ใน session data = `"da_DK"` — ยืนยันว่า Backend ส่ง locale ไปกับ session ได้ถูกต้อง  
-> หาก locale ไม่ปรากฏใน DOM ให้ตรวจสอบ Network tab ใน browser → request ไปยัง `/store/carts/{id}`
+> **Expected**: `locale` field in session data = `"da_DK"` — confirms that the Backend correctly passes locale with the session.  
+> If locale does not appear in the DOM, check the Network tab in the browser → request to `/store/carts/{id}`
 
 ---
 
-## การรายงานผล
+## Reporting Results
 
-### ✅ กรณีทุก AC ผ่าน
+### ✅ All ACs passed
 
 ```
 PASS — Frisbii Pay Payment Display Locale
@@ -728,7 +728,7 @@ AC7 (Frontend da_DK text):  Button shows "Afgiv ordre" ✅
 AC8 (Session data locale):  session.data.locale matches saved locale ✅
 ```
 
-### ❌ กรณีมี AC ล้มเหลว
+### ❌ One or more ACs failed
 
 ```
 FAIL — Frisbii Pay Payment Display Locale
@@ -741,11 +741,11 @@ Expected: <expected behaviour>
 Actual: <actual behaviour>
 ```
 
-พร้อม screenshot ของหน้าที่เกิด error
+Include a screenshot of the page where the error occurred
 
 ---
 
-## ข้อมูลอ้างอิง
+## Reference
 
 - **Storefront**: `http://localhost:8000`
 - **Backend Admin**: `http://localhost:9000/app`
@@ -754,7 +754,7 @@ Actual: <actual behaviour>
 - **Public Config Endpoint**: `GET http://localhost:9000/store/frisbii/config`
 - **Admin Config Endpoint**: `POST http://localhost:9000/admin/frisbii/config`
 
-### Locale Values อ้างอิง
+### Locale Reference Values
 
 | value   | label (EN)  | label (DA)  | enabled |
 |---------|-------------|-------------|---------|
